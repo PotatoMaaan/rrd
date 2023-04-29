@@ -24,7 +24,8 @@ struct Cli {
     output: Option<std::path::PathBuf>,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let base_path = args.directory;
 
@@ -114,9 +115,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!(
-        "\n\nDecrypted {} files in {} seconds.",
+        "\n\nDecrypted {} files in {:.2?}.",
         num_dec_files,
-        start_time.elapsed().as_secs()
+        start_time.elapsed()
     );
     if errors.len() > 0 {
         println!("Errors were encrountered during decryption: ");
