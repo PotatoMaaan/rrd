@@ -3,6 +3,9 @@ rust-rpgmv-decrypt (rrd) is a small program that decrypts games made with rpgmak
 
 The aim is to be small, simple, fast and reliable.
 
+### Credits
+A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/)
+
 ## Bulding
 ```sh
 cargo build --release #builds an optimized release bianry
@@ -20,3 +23,5 @@ Options:
   -o, --output <OUTPUT>  The directory where decrypted files are output to relative to the current directory. This automatically keeps the encrypted files in place. If not specified, the files will be alongside the encrypted ones
   -h, --help             Print help
 ```
+### Note
+This is only intended for local modding etc. Don't steal assets!
