@@ -1,7 +1,10 @@
 use clap::Parser;
+use futures::future::join_all;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::process::exit;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use std::{
     fs::{self, read, File},
@@ -9,6 +12,9 @@ use std::{
     num::ParseIntError,
     path::PathBuf,
 };
+use tokio::runtime::Handle;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use walkdir::WalkDir;
 
 /// Decrypt files encryped by RPMVs default encryprion
@@ -24,7 +30,8 @@ struct Cli {
     output: Option<std::path::PathBuf>,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let base_path = args.directory;
 
@@ -65,20 +72,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Found encryption key: {}", encryption_key);
     let encryption_key = decode_hex(&encryption_key).expect("Invalid key in System.json");
 
-    let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
-    let mut num_dec_files = 0;
+    let mut num_dec_files = Arc::new(AtomicUsize::new(0));
+    let mut handles: Vec<JoinHandle<()>> = vec![];
 
     println!("Starting decryption...");
     let start_time = Instant::now();
     for entry in WalkDir::new(base_path.clone()) {
         let entry = entry.expect("Failed to get dir entry");
         let entry = entry.path().to_path_buf();
-        //let old_path = entry.clone();
         let restored_path = restore_filename(entry.clone());
         let new_path = match restored_path {
-            Some(path) => match args.output {
+            Some(path) => match args.output.clone() {
                 Some(ref dir) => {
-                    let out_path = dir.join(path.strip_prefix(&base_path).unwrap());
+                    let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
                     let _ = fs::create_dir_all(out_path.parent().expect("Has no parent"))
                         .expect("Failed to mkdir");
                     out_path
@@ -90,52 +96,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        match decrypt_file(entry.clone(), encryption_key.clone(), &new_path) {
-            Ok(_) => {
-                println!(
-                    "Decrypting: {}\n\t-> {}",
-                    &entry.display(),
-                    new_path.display()
-                );
+        let output_clone = args.output.clone();
+        let encryption_key_clone = encryption_key.clone();
+        let num_dec_clone = Arc::clone(&num_dec_files);
+        let handle = tokio::spawn(async move {
+            match decrypt_file(entry.clone(), &encryption_key_clone, &new_path) {
+                Ok(_) => {
+                    println!(
+                        "Decrypting: {}\n\t-> {}",
+                        &entry.display(),
+                        new_path.display()
+                    );
 
-                if !args.keep_original {
-                    match args.output {
-                        None => std::fs::remove_file(&entry)?,
-                        _ => {}
+                    if !args.keep_original {
+                        match output_clone {
+                            None => std::fs::remove_file(&entry).expect(
+                                format!("Failed to remove file: {}", &entry.display()).as_str(),
+                            ),
+                            _ => {}
+                        }
                     }
+                    num_dec_clone.fetch_add(1, Ordering::SeqCst);
                 }
-                num_dec_files += 1;
+                Err(err) => {
+                    println!("WARNING: Failed to decrypt: {}", &entry.display());
+                }
             }
-            Err(err) => {
-                println!("WARNING: Failed to decrypt: {}", &entry.display());
-                errors.push(err);
-            }
-        }
+        });
+        println!("waller biller");
+        handles.push(handle);
     }
+    join_all(handles).await;
 
     println!(
         "\n\nDecrypted {} files in {} seconds.",
-        num_dec_files,
+        num_dec_files.load(Ordering::SeqCst),
         start_time.elapsed().as_secs()
     );
-    if errors.len() > 0 {
-        println!("Errors were encrountered during decryption: ");
-        for err in errors {
-            println!("{:?}", err);
-        }
-        println!("System.json was not updated due to previous errors.");
-    } else {
-        system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
-        system_json["hasEncryptedImages"] = serde_json::Value::Bool(false);
-        write_json(system_json, system_json_path).expect("Failed to write to System.json");
+    system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
+    system_json["hasEncryptedImages"] = serde_json::Value::Bool(false);
+    write_json(system_json, system_json_path).expect("Failed to write to System.json");
 
-        println!("Game decrypted without errors!");
-    }
+    println!("Game decrypted without errors!");
 
     Ok(())
 }
 
-fn rpgmv_xor_decrypt(data: Vec<u8>, key: Vec<u8>) -> Result<Vec<u8>, String> {
+fn rpgmv_xor_decrypt(data: Vec<u8>, key: &Vec<u8>) -> Result<Vec<u8>, String> {
     let mut result = Vec::new();
     let key_len = key.len();
     let data_len = data.len();
@@ -149,7 +156,7 @@ fn rpgmv_xor_decrypt(data: Vec<u8>, key: Vec<u8>) -> Result<Vec<u8>, String> {
 
 fn decrypt_file(
     file_path: PathBuf,
-    key: Vec<u8>,
+    key: &Vec<u8>,
     new_path: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = read(&file_path)?;
