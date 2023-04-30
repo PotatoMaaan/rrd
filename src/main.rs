@@ -125,14 +125,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         });
-        println!("waller biller");
         handles.push(handle);
     }
     join_all(handles).await;
 
     println!(
         "\n\nDecrypted {} files in {:.2?}.",
-        num_dec_files,
+        num_dec_files.load(Ordering::SeqCst),
         start_time.elapsed()
     );
     system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
