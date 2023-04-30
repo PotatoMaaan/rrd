@@ -54,6 +54,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
+    println!("Searching for decryptable files...");
+    let mut total_file_amnount = 0;
+    for path in WalkDir::new(base_path.clone()) {
+        let path = path.expect("Failed to get dir");
+        let path = restore_filename(path.path().into());
+        if let Some(_path) = path {
+            total_file_amnount += 1;
+        }
+    }
+    if total_file_amnount > 0 {
+        println!("Found {} decryptable files!", total_file_amnount);
+    } else {
+        println!("Did not find any decryptable files, exiting...");
+        return Ok(());
+    }
+
     let system_json_path = base_path.join("www/data/System.json");
     let mut system_json = get_system_json(system_json_path.clone())
         .map_err(|_e| {
@@ -100,8 +116,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let handle = tokio::spawn(async move {
             match decrypt_file(entry.clone(), &encryption_key_clone, &new_path) {
                 Ok(_) => {
+                    num_dec_clone.fetch_add(1, Ordering::SeqCst);
                     println!(
-                        "Decrypting: {}\n\t-> {}",
+                        "[{}/{}] Decrypting: {}\n\t-> {}",
+                        num_dec_clone.load(Ordering::SeqCst),
+                        total_file_amnount,
                         &entry.display(),
                         new_path.display()
                     );
@@ -114,7 +133,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             _ => {}
                         }
                     }
-                    num_dec_clone.fetch_add(1, Ordering::SeqCst);
                 }
                 Err(err) => {
                     println!(
