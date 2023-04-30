@@ -12,8 +12,6 @@ use std::{
     num::ParseIntError,
     path::PathBuf,
 };
-use tokio::runtime::Handle;
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use walkdir::WalkDir;
 
@@ -72,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Found encryption key: {}", encryption_key);
     let encryption_key = decode_hex(&encryption_key).expect("Invalid key in System.json");
 
-    let mut num_dec_files = Arc::new(AtomicUsize::new(0));
+    let num_dec_files = Arc::new(AtomicUsize::new(0));
     let mut handles: Vec<JoinHandle<()>> = vec![];
 
     println!("Starting decryption...");
@@ -119,7 +117,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     num_dec_clone.fetch_add(1, Ordering::SeqCst);
                 }
                 Err(err) => {
-                    println!("WARNING: Failed to decrypt: {}", &entry.display());
+                    println!(
+                        "WARNING: Failed to decrypt: {} :{:#?}",
+                        &entry.display(),
+                        err
+                    );
                 }
             }
         });
