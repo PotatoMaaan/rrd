@@ -4,6 +4,7 @@ rust-rpgmv-decrypt (rrd) is a small program that decrypts games made with rpgmak
 The aim is to be small, simple, fast and reliable.
 
 Sice the recent implimentation of async file decryption, this might just be the fastest rpgmv decrypter out there :) (please open pr with correction if you find anything faster!)
+
 Here is a comparision (file cache in ram was cleard before earch run)
 - Old implimentation took 36 seconds
 - Async implementation took 14 seconds
