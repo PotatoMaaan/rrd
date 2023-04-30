@@ -131,9 +131,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     join_all(handles).await;
 
     println!(
-        "\n\nDecrypted {} files in {} seconds.",
-        num_dec_files.load(Ordering::SeqCst),
-        start_time.elapsed().as_secs()
+        "\n\nDecrypted {} files in {:.2?}.",
+        num_dec_files,
+        start_time.elapsed()
     );
     system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
     system_json["hasEncryptedImages"] = serde_json::Value::Bool(false);
