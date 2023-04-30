@@ -179,11 +179,23 @@ fn restore_filename(mut path: PathBuf) -> Option<PathBuf> {
             path.set_extension("ogg");
             Some(path)
         }
+        "ogg_" => {
+            path.set_extension("ogg");
+            Some(path)
+        }
         "rpgmvm" => {
             path.set_extension("m4a");
             Some(path)
         }
+        "m4a_" => {
+            path.set_extension("m4a");
+            Some(path)
+        }
         "rpgmvp" => {
+            path.set_extension("png");
+            return Some(path);
+        }
+        "png_" => {
             path.set_extension("png");
             return Some(path);
         }
