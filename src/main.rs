@@ -152,11 +152,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         num_dec_files.load(Ordering::SeqCst),
         start_time.elapsed()
     );
-    system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
-    system_json["hasEncryptedImages"] = serde_json::Value::Bool(false);
-    write_json(system_json, system_json_path).expect("Failed to write to System.json");
+    // Only write to System.json if the files were actually decrypted
+    if !args.keep_original && args.output == None {
+        println!("Updating System.json");
+        system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
+        system_json["hasEncryptedImages"] = serde_json::Value::Bool(false);
+        write_json(system_json, system_json_path).expect("Failed to write to System.json");
+    }
 
-    println!("Game decrypted without errors!");
+    println!("Game decrypted!");
 
     Ok(())
 }
