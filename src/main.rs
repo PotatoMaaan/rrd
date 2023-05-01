@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        // Variables need to be cloned in order to be moved into the task
+        // Variables need to be cloned to move them into the task
         let output_clone = args.output.clone();
         let encryption_key_clone = encryption_key.clone();
         let num_dec_clone = Arc::clone(&num_dec_files);
