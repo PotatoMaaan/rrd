@@ -1,16 +1,16 @@
 use clap::Parser;
 use futures::future::join_all;
-use std::fs::OpenOptions;
-use std::io::BufWriter;
-use std::process::exit;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
 use std::{
-    fs::{self, read, File},
-    io::Write,
+    fs::{self, read, File, OpenOptions},
+    io::{BufWriter, Write},
     num::ParseIntError,
     path::PathBuf,
+    process::exit,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Instant,
 };
 use tokio::task::JoinHandle;
 use walkdir::WalkDir;
