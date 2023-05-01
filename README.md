@@ -45,11 +45,11 @@ A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rp
 ![dgdf](/tutorial-images/example-finished.png)
 
 ## Bulding
-Building rust programs (such as this) is very simple. You only need to install [the Rust toolchain](https://rustup.rs/) for your system and execute the following commands:
+Building rust programs (such as this) is very simple. You only need to install [the rust toolchain](https://rustup.rs/) for your system and execute the following commands:
 ```sh
 git clone https://github.com/PotatoMaaan/rrd.git
 cd rrd
-cargo build --release #builds an optimized release bianry
+cargo build --release #builds an optimized release bianry in target/release
 ```
 
 ## Usage
