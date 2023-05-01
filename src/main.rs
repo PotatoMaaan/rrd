@@ -26,6 +26,15 @@ struct Cli {
     /// The directory where decrypted files are output to relative to the current directory. This automatically keeps the encrypted files in place. If not specified, the files will be alongside the encrypted ones
     #[arg(short, long)]
     output: Option<std::path::PathBuf>,
+    /// Just scan the directory for decryptable files, list them and then exit
+    #[arg(short, long)]
+    scan: bool,
+    /// Don't print individual files being decrypted
+    #[arg(short, long)]
+    quiet: bool,
+    /// Print the key (if present) and exit
+    #[arg(long)]
+    key: bool,
 }
 
 #[tokio::main]
@@ -33,26 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let base_path = args.directory;
 
-    let _base_dir = match base_path.read_dir() {
-        Ok(dir) => dir,
-        Err(err) => match err.kind() {
-            std::io::ErrorKind::NotFound => {
-                println!(
-                    "The provided directory \"{}\" does not exist",
-                    base_path.into_os_string().into_string().unwrap()
-                );
-                std::process::exit(1);
-            }
-            std::io::ErrorKind::PermissionDenied => {
-                println!("No permissionn to read the directory");
-                std::process::exit(1);
-            }
-            _ => {
-                println!("Error while reading the directory: {:?}", err);
-                std::process::exit(1);
-            }
-        },
-    };
+    check_dir(base_path.clone());
 
     println!("Searching for decryptable files...");
     let mut total_file_amnount = 0;
@@ -63,8 +53,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_file_amnount += 1;
         }
     }
+
     if total_file_amnount > 0 {
-        println!("Found {} decryptable files!", total_file_amnount);
+        println!("Found {} decryptable files", total_file_amnount);
+
+        // Exit if just scanning for files
+        if args.scan {
+            return Ok(());
+        }
     } else {
         println!("Did not find any decryptable files, exiting...");
         return Ok(());
@@ -79,30 +75,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     if system_json["encryptionKey"].is_null() {
-        panic!("Key in System.json is invalid")
+        println!("No key found in System.json!");
+        return Ok(());
     }
 
     let encryption_key = system_json["encryptionKey"].as_str().unwrap();
     println!("Found encryption key: {}", encryption_key);
-    let encryption_key = decode_hex(&encryption_key).expect("Invalid key in System.json");
 
+    // Exit if the key option was given
+    if args.key {
+        return Ok(());
+    }
+
+    let encryption_key = decode_hex(&encryption_key).expect("Invalid key in System.json");
     let num_dec_files = Arc::new(AtomicUsize::new(0));
     let mut handles: Vec<JoinHandle<()>> = vec![];
 
     println!("Starting decryption...");
     let start_time = Instant::now();
+
     for entry in WalkDir::new(base_path.clone()) {
         let entry = entry.expect("Failed to get dir entry");
         let entry = entry.path().to_path_buf();
         let restored_path = restore_filename(entry.clone());
+
         let new_path = match restored_path {
             Some(path) => match args.output.clone() {
+                // An output path is specified, construct an output path relative to the specified one
                 Some(ref dir) => {
                     let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
                     let _ = fs::create_dir_all(out_path.parent().expect("Has no parent"))
                         .expect("Failed to mkdir");
                     out_path
                 }
+                // No output path specified, use the origial path
                 None => path,
             },
             None => {
@@ -110,20 +116,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
+        // Variables need to be cloned in order to be moved into the task
         let output_clone = args.output.clone();
         let encryption_key_clone = encryption_key.clone();
         let num_dec_clone = Arc::clone(&num_dec_files);
+
+        // Create new tokio task for each file, this is much faster than decrypting the files in order
         let handle = tokio::spawn(async move {
             match decrypt_file(entry.clone(), &encryption_key_clone, &new_path) {
+                // File was decrypted successfully
                 Ok(_) => {
                     num_dec_clone.fetch_add(1, Ordering::SeqCst);
-                    println!(
-                        "[{}/{}] Decrypting: {}\n\t-> {}",
-                        num_dec_clone.load(Ordering::SeqCst),
-                        total_file_amnount,
-                        &entry.display(),
-                        new_path.display()
-                    );
+
+                    if !args.quiet {
+                        println!(
+                            "[{}/{}] Decrypting: {}\n\t-> {}",
+                            num_dec_clone.load(Ordering::SeqCst),
+                            total_file_amnount,
+                            &entry.display(),
+                            new_path.display()
+                        );
+                    }
 
                     if !args.keep_original {
                         match output_clone {
@@ -134,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
+                // Error during decryption
                 Err(err) => {
                     println!(
                         "WARNING: Failed to decrypt: {} :{:#?}",
@@ -145,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
         handles.push(handle);
     }
+    // Wait for all decryption tasks to finish
     join_all(handles).await;
 
     println!(
@@ -152,7 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         num_dec_files.load(Ordering::SeqCst),
         start_time.elapsed()
     );
-    // Only write to System.json if the files were actually decrypted
+
+    // Only write to System.json if the files were actually decrypted in place
     if !args.keep_original && args.output == None {
         println!("Updating System.json");
         system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
@@ -163,6 +179,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Game decrypted!");
 
     Ok(())
+}
+
+fn check_dir(path: PathBuf) {
+    match path.read_dir() {
+        Ok(dir) => dir,
+        Err(err) => match err.kind() {
+            std::io::ErrorKind::NotFound => {
+                println!(
+                    "The provided directory \"{}\" does not exist",
+                    path.display()
+                );
+                std::process::exit(1);
+            }
+            std::io::ErrorKind::PermissionDenied => {
+                println!("No permissionn to read the directory");
+                std::process::exit(1);
+            }
+            _ => {
+                println!("Error while reading the directory: {:?}", err);
+                std::process::exit(1);
+            }
+        },
+    };
 }
 
 fn rpgmv_xor_decrypt(data: Vec<u8>, key: &Vec<u8>) -> Result<Vec<u8>, String> {
@@ -228,7 +267,7 @@ fn restore_filename(mut path: PathBuf) -> Option<PathBuf> {
 fn get_system_json(path: PathBuf) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let file_content = std::fs::read_to_string(path)?;
 
-    // Remove BOM as serde_json cannot handle it
+    // Remove BOM if present as serde_json cannot handle it
     let system_json: serde_json::Value =
         serde_json::from_str(&file_content.trim_start_matches("\u{feff}"))?;
 
