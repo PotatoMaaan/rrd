@@ -9,9 +9,8 @@ Here is a comparision (file cache in ram was cleard before earch run)
 - Old implimentation took 36 seconds
 - Async implementation took 14 seconds
 
-
 ### Credits
-A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/)
+- A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/)
 
 ### Notes for Windows users
 - Windows defender may detect the file as malicious in some way. (When testing it, i got "Windows protected your PC") If you don't trust the files because of this, you can easily build the program yourself (see the building section)
@@ -54,7 +53,7 @@ cargo build --release #builds an optimized release bianry in target/release
 
 ## Usage
 ```
-Usage: rrd [OPTIONS] <DIRECTORY>
+Usage: rust-rpgmv-decrypt [OPTIONS] <DIRECTORY>
 
 Arguments:
   <DIRECTORY>  The game directory containing the main executable file
@@ -62,6 +61,9 @@ Arguments:
 Options:
   -k, --keep-original    Keep the original (encrypted) file next to the decrypted files
   -o, --output <OUTPUT>  The directory where decrypted files are output to relative to the current directory. This automatically keeps the encrypted files in place. If not specified, the files will be alongside the encrypted ones
+  -s, --scan             Just scan the directory for decryptable files, list them and then exit
+  -q, --quiet            Don't print individual files being decrypted
+      --key              Print the key (if present) and exit
   -h, --help             Print help
 ```
 ### Note
