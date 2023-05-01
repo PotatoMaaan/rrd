@@ -5,7 +5,6 @@ use std::{
     io::{BufWriter, Write},
     num::ParseIntError,
     path::PathBuf,
-    process::exit,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -80,12 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let mut system_json = get_system_json(system_json_path.clone())
-        .map_err(|_e| {
-            println!("System.json is invalid!");
-            exit(1);
-        })
-        .unwrap();
+    let mut system_json = get_system_json(system_json_path.clone()).expect("Invalid System.json");
 
     if system_json["encryptionKey"].is_null() {
         println!("No key found in System.json!");
