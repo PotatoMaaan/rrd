@@ -17,6 +17,7 @@ use walkdir::WalkDir;
 
 /// Decrypt files encryped by RPMVs default encryprion
 #[derive(Parser)]
+#[command(version)]
 struct Cli {
     /// The game directory containing the main executable file
     directory: std::path::PathBuf,
