@@ -14,7 +14,7 @@ Here is a comparision (file cache in ram was cleard before earch run)
 A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/)
 
 ### Notes for Windows users
-- Windows defender may detect the file as malicious in some way. (When testing it, i got "Windows protected your PC") If you don't trust the biaries because of this, you can easily build the program yourself (see the build section)
+- Windows defender may detect the file as malicious in some way. (When testing it, i got "Windows protected your PC") If you don't trust the biaries because of this, you can easily build the program yourself (see the building section)
 - On windows, it's theoretically enough to drag the game folder onto the downloaded program, however, this won't give you any access to options and means that you always need to keep the file around somewhere where you can find it. Because of that, I recommend you do the following:
 
 ## Installation
