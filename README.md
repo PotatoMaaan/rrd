@@ -54,7 +54,7 @@ cargo build --release #builds an optimized release bianry in target/release
 
 ## Usage
 ```
-Usage: rrd [OPTIONS] <DIRECTORY>
+Usage: rust-rpgmv-decrypt [OPTIONS] <DIRECTORY>
 
 Arguments:
   <DIRECTORY>  The game directory containing the main executable file
@@ -62,6 +62,9 @@ Arguments:
 Options:
   -k, --keep-original    Keep the original (encrypted) file next to the decrypted files
   -o, --output <OUTPUT>  The directory where decrypted files are output to relative to the current directory. This automatically keeps the encrypted files in place. If not specified, the files will be alongside the encrypted ones
+  -s, --scan             Just scan the directory for decryptable files, list them and then exit
+  -q, --quiet            Don't print individual files being decrypted
+      --key              Print the key (if present) and exit
   -h, --help             Print help
 ```
 ### Note
