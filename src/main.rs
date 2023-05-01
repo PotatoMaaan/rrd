@@ -66,10 +66,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let system_json_path = base_path.join("www/data/System.json");
+    let path1 = base_path.join("www/data/System.json");
+    let path2 = base_path.join("data/System.json");
+    let system_json_path;
+
+    if path1.exists() {
+        system_json_path = path1
+    } else if path2.exists() {
+        system_json_path = path2
+    } else {
+        println!("System.json not found, exiting...");
+        return Ok(());
+    }
+
     let mut system_json = get_system_json(system_json_path.clone())
         .map_err(|_e| {
-            println!("System.json not found or it was invalid!");
+            println!("System.json is invalid!");
             exit(1);
         })
         .unwrap();
