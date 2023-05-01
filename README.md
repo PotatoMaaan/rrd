@@ -13,9 +13,11 @@ Here is a comparision (file cache in ram was cleard before earch run)
 ### Credits
 A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/)
 
+### Notes for Windows users
+- Windows defender may detect the file as malicous in some way, when testing it said "Windows protected your PC". If you don't trust the biaries because of this, you can easily build the program yourself (see the build section)
+- On windows, it's theoretically enough to drag the game folder onto the downloaded program, however, this won't give you any access to options and means that you always need to keep the file around somewhere where you can find it. Because of that, I recommend you do the following:
+
 ## Installation
-### Note for Windows users
-On windows, it's theoretically enough to drag the game folder onto the downloaded program, however, this won't give you any access to options and means that you always need to keep the file around somewhere where you can find it. Because of that, I recommend you do the following:
 
 1. First, download an existing binary or compile the program yourself. (see the building section)
 2. Rename the file to whatever you want
@@ -43,6 +45,7 @@ On windows, it's theoretically enough to drag the game folder onto the downloade
 ![dgdf](/tutorial-images/example-finished.png)
 
 ## Bulding
+Building rust programs (such as this) is very simple. You only need to install [the Rust toolchain](https://rustup.rs/) for your system and execute the following commands:
 ```sh
 git clone https://github.com/PotatoMaaan/rrd.git
 cd rrd
