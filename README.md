@@ -20,8 +20,8 @@ Here is a comparision (file cache in ram was cleard before earch run)
 
 1. First, download an existing binary or compile the program yourself. (see the building section)
 2. Rename the file to whatever you want
-3. Place the file into a directory which is in your PATH. (for example `C:\Windows` on Windows or `/usr/local/bin` on most UNIX-like Systems.
-4. Open a terminal and type the name you gave your file in step 1.
+3. Place the file into a directory which is in your PATH. (for example `C:\Windows` on Windows or `/usr/local/bin` on most UNIX-like Systems.)
+4. Open a terminal and type the name you gave your file in step 2.
 
 ## Example installation and use (Windows)
 1. Do the steps from the installation section, your file (in this case named rrd.exe) should now be in `C:\Windows`.
