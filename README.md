@@ -43,7 +43,7 @@ Here is a comparision (file cache in ram was cleard before earch run)
 
 ![dgdf](/tutorial-images/example-finished.png)
 
-## Bulding
+## Building
 Building rust programs (such as this) is very simple. You only need to install [the rust toolchain](https://rustup.rs/) for your system and execute the following commands:
 ```sh
 git clone https://github.com/PotatoMaaan/rrd.git
