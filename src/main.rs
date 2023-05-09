@@ -12,6 +12,7 @@ use std::{
     time::Instant,
 };
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 /// Decrypt files encryped by RPMVs default encryprion
@@ -35,12 +36,26 @@ struct Cli {
     /// Print the key (if present) and exit
     #[arg(long)]
     key: bool,
+    /// Flatten directory structure of the output into a single directory containg all the files (only effective when --output is specified)
+    #[arg(short, long)]
+    flatten_paths: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let base_path = args.directory;
+    let flatten_paths = match args.output {
+        Some(_) => args.flatten_paths,
+        None => false,
+    };
+
+    if let Some(path) = &args.output {
+        if path.exists() {
+            println!("ERROR: Output path {} already exists!", path.display());
+            return Ok(());
+        }
+    }
 
     check_dir(base_path.clone());
 
@@ -62,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
     } else {
-        println!("Did not find any decryptable files, exiting...");
+        println!("ERROR: Did not find any decryptable files");
         return Ok(());
     }
 
@@ -75,14 +90,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if path2.exists() {
         system_json_path = path2
     } else {
-        println!("System.json not found, exiting...");
+        println!("ERROR: System.json not found");
         return Ok(());
     }
 
     let mut system_json = get_system_json(system_json_path.clone()).expect("Invalid System.json");
 
     if system_json["encryptionKey"].is_null() {
-        println!("No key found in System.json!");
+        println!("ERROR: No key found in System.json");
         return Ok(());
     }
 
@@ -110,10 +125,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(path) => match args.output.clone() {
                 // An output path is specified, construct an output path relative to the specified one
                 Some(ref dir) => {
-                    let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
-                    let _ = fs::create_dir_all(out_path.parent().expect("Has no parent"))
-                        .expect("Failed to mkdir");
-                    out_path
+                    if flatten_paths {
+                        let mut out_path = dir.join(Uuid::new_v4().to_string());
+                        if let Some(p) = path.extension() {
+                            out_path.set_extension(p);
+                        };
+                        if !dir.exists() {
+                            fs::create_dir(dir).expect("Failed to mkdir");
+                        }
+                        out_path
+                    } else {
+                        let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
+                        let _ = fs::create_dir_all(out_path.parent().expect("Has no parent"))
+                            .expect("Failed to mkdir");
+                        out_path
+                    }
                 }
                 // No output path specified, use the origial path
                 None => path,

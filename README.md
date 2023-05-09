@@ -64,7 +64,9 @@ Options:
   -s, --scan             Just scan the directory for decryptable files, list them and then exit
   -q, --quiet            Don't print individual files being decrypted
       --key              Print the key (if present) and exit
+  -f, --flatten-paths    Flatten directory structure of the output into a single directory containg all the files (only effective when --output is specified)
   -h, --help             Print help
+  -V, --version          Print version
 ```
 ### Note
 This is only intended for local modding etc. Don't steal assets!
