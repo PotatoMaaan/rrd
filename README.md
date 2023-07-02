@@ -5,7 +5,7 @@ The aim is to be small, simple, fast and reliable.
 
 Since the recent implimentation of async file decryption, this might just be the fastest rpgmv decrypter out there :) (please open pr with correction if you find anything faster!)
 
-Here is a comparision (file cache in ram was cleard before earch run)
+Here is a comparision (file cache in ram was cleared before each run)
 - Old implimentation took 36 seconds
 - Async implementation took 14 seconds
 
