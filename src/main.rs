@@ -1,3 +1,5 @@
+#![allow(clippy::needless_return)]
+
 use clap::Parser;
 use cli::*;
 use std::{
@@ -106,8 +108,7 @@ async fn main() {
             }
             (Some(path), Some(ref dir), false) => {
                 let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
-                let _ = create_dir_all(out_path.parent().expect("Has no parent"))
-                    .expect("Failed to mkdir");
+                create_dir_all(out_path.parent().expect("Has no parent")).expect("Failed to mkdir");
                 out_path
             }
             (Some(path), None, _) => path,
@@ -159,7 +160,7 @@ async fn main() {
     );
 
     // Only write to System.json if the files were actually decrypted in place
-    if !args.keep_original && args.output == None {
+    if !args.keep_original && args.output.is_none() {
         println!("Updating System.json");
         system_json["hasEncryptedAudio"] = serde_json::Value::Bool(false);
         system_json["hasEncryptedImages"] = serde_json::Value::Bool(false);
