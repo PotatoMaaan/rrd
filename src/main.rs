@@ -82,7 +82,7 @@ async fn main() {
         exit(0);
     }
 
-    let encryption_key = decode_hex(&encryption_key).expect("Invalid key in System.json");
+    let encryption_key = decode_hex(encryption_key).expect("Invalid key in System.json");
     let num_dec_files = Arc::new(AtomicUsize::new(0));
     let mut handles: Vec<JoinHandle<()>> = vec![];
 
@@ -143,7 +143,7 @@ async fn main() {
 
             if !args.keep_original && output_clone.is_none() {
                 std::fs::remove_file(&entry)
-                    .expect(format!("Failed to remove file: {}", &entry.display()).as_str());
+                    .unwrap_or_else(|_| panic!("Failed to remove file: {}", &entry.display()));
             }
         });
         handles.push(handle);

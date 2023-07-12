@@ -22,14 +22,14 @@ pub fn decrypt_file(
     key: &Vec<u8>,
     new_path: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file = read(&file_path)?;
+    let file = read(file_path)?;
     let file = file[16..].to_vec();
     let cyphertext = file[..16].to_vec();
     let mut plaintext = rpgmv_xor_decrypt(cyphertext, key)?;
     let mut file = file[16..].to_vec();
     //println!("{:?}", plaintext);
     plaintext.append(&mut file);
-    let mut new_file = File::create(&new_path)?;
+    let mut new_file = File::create(new_path)?;
     new_file.write_all(&plaintext)?;
     Ok(())
 }
@@ -70,7 +70,7 @@ pub fn get_system_json(path: PathBuf) -> Result<serde_json::Value, Box<dyn std::
 
     // Remove BOM if present as serde_json cannot handle it
     let system_json: serde_json::Value =
-        serde_json::from_str(&file_content.trim_start_matches("\u{feff}"))?;
+        serde_json::from_str(file_content.trim_start_matches('\u{feff}'))?;
 
     Ok(system_json)
 }
