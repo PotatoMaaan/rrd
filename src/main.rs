@@ -93,7 +93,7 @@ async fn main() {
         let restored_path = restore_filename(entry.clone());
 
         let new_path = match (restored_path, args.output.clone(), flatten_paths) {
-            // An output path is specified, construct an output path relative to the specified one
+            // Flatten paths and output dir
             (Some(path), Some(ref dir), true) => {
                 let mut out_path = dir.join(Uuid::new_v4().to_string());
                 if let Some(p) = path.extension() {
@@ -104,15 +104,16 @@ async fn main() {
                 }
                 out_path
             }
+            // Just output dir
             (Some(path), Some(ref dir), false) => {
                 let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
                 create_dir_all(out_path.parent().expect("Has no parent")).expect("Failed to mkdir");
                 out_path
             }
+            // Nothing specified
             (Some(path), None, _) => path,
-            _ => {
-                continue;
-            }
+            // Not a decryptable file
+            _ => continue,
         };
 
         // Variables need to be cloned to move them into the task
