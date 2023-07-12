@@ -1,6 +1,10 @@
 use clap::{command, Parser};
 
-/// Decrypt files encryped by RPMVs default encryprion
+/// Decrypt files encryped by RPMVs default encryprion{n}{n}
+/// Examples:{n}{n}
+/// rrd <path-to-game> # decrypts the game's assets in place{n}
+/// rrd <path-to-game> -o <path-to-output> # decrypts the game and places resulting content in <path-to-output>{n}{n}
+/// This program is free software distributed under the GNU General Public License version 3
 #[derive(Parser)]
 #[command(version)]
 pub struct Cli {
