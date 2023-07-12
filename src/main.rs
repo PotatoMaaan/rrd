@@ -1,10 +1,9 @@
 use clap::Parser;
-use futures::future::join_all;
+use cli::*;
 use std::{
-    fs::{self, read, File, OpenOptions},
-    io::{BufWriter, Write},
-    num::ParseIntError,
+    fs::{create_dir, create_dir_all},
     path::PathBuf,
+    process::exit,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -12,37 +11,15 @@ use std::{
     time::Instant,
 };
 use tokio::task::JoinHandle;
+use util::*;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-/// Decrypt files encryped by RPMVs default encryprion
-#[derive(Parser)]
-#[command(version)]
-struct Cli {
-    /// The game directory containing the main executable file
-    directory: std::path::PathBuf,
-    /// Keep the original (encrypted) file next to the decrypted files
-    #[arg(short, long)]
-    keep_original: bool,
-    /// The directory where decrypted files are output to relative to the current directory. This automatically keeps the encrypted files in place. If not specified, the files will be alongside the encrypted ones
-    #[arg(short, long)]
-    output: Option<std::path::PathBuf>,
-    /// Just scan the directory for decryptable files, list them and then exit
-    #[arg(short, long)]
-    scan: bool,
-    /// Don't print individual files being decrypted
-    #[arg(short, long)]
-    quiet: bool,
-    /// Print the key (if present) and exit
-    #[arg(long)]
-    key: bool,
-    /// Flatten directory structure of the output into a single directory containg all the files (only effective when --output is specified)
-    #[arg(short, long)]
-    flatten_paths: bool,
-}
+mod cli;
+mod util;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     let args = Cli::parse();
     let base_path = args.directory;
     let flatten_paths = match args.output {
@@ -52,19 +29,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(path) = &args.output {
         if path.exists() {
-            println!("ERROR: Output path {} already exists!", path.display());
-            return Ok(());
+            eprintln!("ERROR: Output path {} already exists!", path.display());
+            exit(0);
         }
     }
-
-    check_dir(base_path.clone());
 
     println!("Searching for decryptable files...");
     let mut total_file_amnount = 0;
     for path in WalkDir::new(base_path.clone()) {
         let path = path.expect("Failed to get dir");
         let path = restore_filename(path.path().into());
-        if let Some(_path) = path {
+        if path.is_some() {
             total_file_amnount += 1;
         }
     }
@@ -74,11 +49,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Exit if just scanning for files
         if args.scan {
-            return Ok(());
+            exit(0);
         }
     } else {
-        println!("ERROR: Did not find any decryptable files");
-        return Ok(());
+        eprintln!("ERROR: Did not find any decryptable files");
+        exit(1);
     }
 
     let path1 = base_path.join("www/data/System.json");
@@ -90,23 +65,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if path2.exists() {
         system_json_path = path2
     } else {
-        println!("ERROR: System.json not found");
-        return Ok(());
+        eprintln!("ERROR: System.json not found");
+        exit(1);
     }
 
     let mut system_json = get_system_json(system_json_path.clone()).expect("Invalid System.json");
-
-    if system_json["encryptionKey"].is_null() {
-        println!("ERROR: No key found in System.json");
-        return Ok(());
-    }
-
-    let encryption_key = system_json["encryptionKey"].as_str().unwrap();
+    let encryption_key = system_json["encryptionKey"]
+        .as_str()
+        .expect("No encryption key in System.json!");
     println!("Found encryption key: {}", encryption_key);
 
     // Exit if the key option was given
     if args.key {
-        return Ok(());
+        exit(0);
     }
 
     let encryption_key = decode_hex(&encryption_key).expect("Invalid key in System.json");
@@ -121,30 +92,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let entry = entry.path().to_path_buf();
         let restored_path = restore_filename(entry.clone());
 
-        let new_path = match restored_path {
-            Some(path) => match args.output.clone() {
-                // An output path is specified, construct an output path relative to the specified one
-                Some(ref dir) => {
-                    if flatten_paths {
-                        let mut out_path = dir.join(Uuid::new_v4().to_string());
-                        if let Some(p) = path.extension() {
-                            out_path.set_extension(p);
-                        };
-                        if !dir.exists() {
-                            fs::create_dir(dir).expect("Failed to mkdir");
-                        }
-                        out_path
-                    } else {
-                        let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
-                        let _ = fs::create_dir_all(out_path.parent().expect("Has no parent"))
-                            .expect("Failed to mkdir");
-                        out_path
-                    }
+        let new_path = match (restored_path, args.output.clone(), flatten_paths) {
+            // An output path is specified, construct an output path relative to the specified one
+            (Some(path), Some(ref dir), true) => {
+                let mut out_path = dir.join(Uuid::new_v4().to_string());
+                if let Some(p) = path.extension() {
+                    out_path.set_extension(p);
+                };
+                if !dir.exists() {
+                    create_dir(dir).expect("Failed to mkdir");
                 }
-                // No output path specified, use the origial path
-                None => path,
-            },
-            None => {
+                out_path
+            }
+            (Some(path), Some(ref dir), false) => {
+                let out_path: PathBuf = dir.join(path.strip_prefix(&base_path).unwrap());
+                let _ = create_dir_all(out_path.parent().expect("Has no parent"))
+                    .expect("Failed to mkdir");
+                out_path
+            }
+            (Some(path), None, _) => path,
+            _ => {
                 continue;
             }
         };
@@ -156,44 +123,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Create new tokio task for each file, this is much faster than decrypting the files in order
         let handle = tokio::spawn(async move {
-            match decrypt_file(entry.clone(), &encryption_key_clone, &new_path) {
-                // File was decrypted successfully
-                Ok(_) => {
-                    num_dec_clone.fetch_add(1, Ordering::SeqCst);
+            if !args.quiet {
+                println!(
+                    "[{}/{}] Decrypting: {}\n\t-> {}",
+                    num_dec_clone.load(Ordering::SeqCst),
+                    total_file_amnount,
+                    &entry.display(),
+                    new_path.display()
+                );
+            }
 
-                    if !args.quiet {
-                        println!(
-                            "[{}/{}] Decrypting: {}\n\t-> {}",
-                            num_dec_clone.load(Ordering::SeqCst),
-                            total_file_amnount,
-                            &entry.display(),
-                            new_path.display()
-                        );
-                    }
+            if let Err(e) = decrypt_file(entry.clone(), &encryption_key_clone, &new_path) {
+                println!("WARNING: Failed to decrypt: {} :{:?}", &entry.display(), e);
+                return;
+            }
 
-                    if !args.keep_original {
-                        match output_clone {
-                            None => std::fs::remove_file(&entry).expect(
-                                format!("Failed to remove file: {}", &entry.display()).as_str(),
-                            ),
-                            _ => {}
-                        }
-                    }
-                }
-                // Error during decryption
-                Err(err) => {
-                    println!(
-                        "WARNING: Failed to decrypt: {} :{:#?}",
-                        &entry.display(),
-                        err
-                    );
-                }
+            num_dec_clone.fetch_add(1, Ordering::SeqCst);
+
+            if !args.keep_original && output_clone.is_none() {
+                std::fs::remove_file(&entry)
+                    .expect(format!("Failed to remove file: {}", &entry.display()).as_str());
             }
         });
         handles.push(handle);
     }
-    // Wait for all decryption tasks to finish
-    join_all(handles).await;
+
+    for handle in handles {
+        handle.await.expect("Failed to await handle");
+    }
 
     println!(
         "\n\nDecrypted {} files in {:.2?}.",
@@ -210,113 +167,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Game decrypted!");
-
-    Ok(())
-}
-
-fn check_dir(path: PathBuf) {
-    match path.read_dir() {
-        Ok(dir) => dir,
-        Err(err) => match err.kind() {
-            std::io::ErrorKind::NotFound => {
-                println!(
-                    "The provided directory \"{}\" does not exist",
-                    path.display()
-                );
-                std::process::exit(1);
-            }
-            std::io::ErrorKind::PermissionDenied => {
-                println!("No permissionn to read the directory");
-                std::process::exit(1);
-            }
-            _ => {
-                println!("Error while reading the directory: {:?}", err);
-                std::process::exit(1);
-            }
-        },
-    };
-}
-
-fn rpgmv_xor_decrypt(data: Vec<u8>, key: &Vec<u8>) -> Result<Vec<u8>, String> {
-    let mut result = Vec::new();
-    let key_len = key.len();
-    let data_len = data.len();
-    for i in 0..data_len {
-        result.push(
-            data.get(i).ok_or("Invalid Index")? ^ key.get(i % key_len).ok_or("Invalid index")?,
-        );
-    }
-    Ok(result)
-}
-
-fn decrypt_file(
-    file_path: PathBuf,
-    key: &Vec<u8>,
-    new_path: &PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let file = read(&file_path)?;
-    let file = file[16..].to_vec();
-    let cyphertext = file[..16].to_vec();
-    let mut plaintext = rpgmv_xor_decrypt(cyphertext, key)?;
-    let mut file = file[16..].to_vec();
-    //println!("{:?}", plaintext);
-    plaintext.append(&mut file);
-    let mut new_file = File::create(&new_path)?;
-    new_file.write_all(&plaintext)?;
-    Ok(())
-}
-
-fn restore_filename(mut path: PathBuf) -> Option<PathBuf> {
-    let extension = path.extension()?.to_owned();
-    match extension.to_str()? {
-        "rpgmvo" => {
-            path.set_extension("ogg");
-            Some(path)
-        }
-        "ogg_" => {
-            path.set_extension("ogg");
-            Some(path)
-        }
-        "rpgmvm" => {
-            path.set_extension("m4a");
-            Some(path)
-        }
-        "m4a_" => {
-            path.set_extension("m4a");
-            Some(path)
-        }
-        "rpgmvp" => {
-            path.set_extension("png");
-            return Some(path);
-        }
-        "png_" => {
-            path.set_extension("png");
-            return Some(path);
-        }
-        _ => None,
-    }
-}
-
-fn get_system_json(path: PathBuf) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let file_content = std::fs::read_to_string(path)?;
-
-    // Remove BOM if present as serde_json cannot handle it
-    let system_json: serde_json::Value =
-        serde_json::from_str(&file_content.trim_start_matches("\u{feff}"))?;
-
-    Ok(system_json)
-}
-
-fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect()
-}
-
-fn write_json(json: serde_json::Value, path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let file = OpenOptions::new().write(true).truncate(true).open(path)?;
-    let mut writer = BufWriter::new(file);
-    serde_json::to_writer(&mut writer, &json)?;
-    Ok(())
 }
