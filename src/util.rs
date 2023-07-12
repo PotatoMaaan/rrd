@@ -14,7 +14,7 @@ pub fn rpgmv_xor_decrypt(data: Vec<u8>, key: &Vec<u8>) -> Result<Vec<u8>, String
             data.get(i).ok_or("Invalid Index")? ^ key.get(i % key_len).ok_or("Invalid index")?,
         );
     }
-    return Ok(result);
+    Ok(result)
 }
 
 pub fn decrypt_file(
@@ -31,7 +31,7 @@ pub fn decrypt_file(
     plaintext.append(&mut file);
     let mut new_file = File::create(new_path)?;
     new_file.write_all(&plaintext)?;
-    return Ok(());
+    Ok(())
 }
 
 pub fn restore_filename(mut path: PathBuf) -> Option<PathBuf> {
@@ -55,11 +55,11 @@ pub fn restore_filename(mut path: PathBuf) -> Option<PathBuf> {
         }
         "rpgmvp" => {
             path.set_extension("png");
-            return Some(path);
+            Some(path)
         }
         "png_" => {
             path.set_extension("png");
-            return Some(path);
+            Some(path)
         }
         _ => None,
     }
@@ -72,14 +72,14 @@ pub fn get_system_json(path: PathBuf) -> Result<serde_json::Value, Box<dyn std::
     let system_json: serde_json::Value =
         serde_json::from_str(file_content.trim_start_matches('\u{feff}'))?;
 
-    return Ok(system_json);
+    Ok(system_json)
 }
 
 pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-    return (0..s.len())
+    (0..s.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect();
+        .collect()
 }
 
 pub fn write_json(
@@ -88,5 +88,5 @@ pub fn write_json(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let jstr = serde_json::to_string(&json)?;
     write(path, jstr)?;
-    return Ok(());
+    Ok(())
 }
