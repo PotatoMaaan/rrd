@@ -1,5 +1,3 @@
-#![allow(clippy::needless_return)]
-
 use clap::Parser;
 use cli::*;
 use std::{
