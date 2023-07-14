@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "rust-rpgmv-decrypt"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "clap",
  "serde_json",
