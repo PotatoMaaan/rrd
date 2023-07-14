@@ -1,4 +1,5 @@
 # rust-rpgmv-decrypt (rrd)
+
 rust-rpgmv-decrypt (rrd) is a small program that decrypts games made with rpgmaker-mv, written in Rust.
 
 The aim is to be small, simple, fast and reliable.
@@ -6,13 +7,16 @@ The aim is to be small, simple, fast and reliable.
 Since the recent implimentation of async file decryption, this might just be the fastest rpgmv decrypter out there :) (please open pr with correction if you find anything faster!)
 
 Here is a comparision (file cache in ram was cleared before each run)
+
 - Old implimentation took 36 seconds
 - Async implementation took 14 seconds
 
 ### Credits
+
 - A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/)
 
 ### Notes for Windows users
+
 - Windows defender may detect the file as malicious in some way. (When testing it, i got "Windows protected your PC") If you don't trust the files because of this, you can easily build the program yourself (see the building section)
 - On windows, it's theoretically enough to drag the game folder onto the downloaded program, however, this won't give you any access to options and means that you always need to keep the file around somewhere where you can find it. Because of that, I recommend you do the following:
 
@@ -24,6 +28,7 @@ Here is a comparision (file cache in ram was cleared before each run)
 4. Open a terminal and type the name you gave your file in step 2.
 
 ## Example installation and use (Windows)
+
 1. Do the steps from the installation section, your file (in this case named rrd.exe) should now be in `C:\Windows`.
 2. In explorer, navigate to he folder where your game is, in this example, it is a folder named `game` inside the `Documents` folder. We don't actually want to go into the `game` folder, but rather the folder that contains the game, in this case, `Documents`.
 3. Click into the url bar in Explorer and type `cmd`
@@ -44,7 +49,9 @@ Here is a comparision (file cache in ram was cleared before each run)
 ![dgdf](/tutorial-images/example-finished.png)
 
 ## Building
+
 Building rust programs (such as this) is very simple. You only need to install [the rust toolchain](https://rustup.rs/) for your system and execute the following commands:
+
 ```sh
 git clone https://github.com/PotatoMaaan/rrd.git
 cd rrd
@@ -52,6 +59,7 @@ cargo build --release #builds an optimized release bianry in target/release
 ```
 
 ## Usage
+
 ```
 Usage: rust-rpgmv-decrypt [OPTIONS] <DIRECTORY>
 
@@ -65,8 +73,11 @@ Options:
   -q, --quiet            Don't print individual files being decrypted
       --key              Print the key (if present) and exit
   -f, --flatten-paths    Flatten directory structure of the output into a single directory containg all the files (only effective when --output is specified)
+      --force            Continue even if the output directory already exists
   -h, --help             Print help
   -V, --version          Print version
 ```
+
 ### Note
+
 This is only intended for local modding etc. Don't steal assets!
