@@ -1,7 +1,7 @@
 use clap::Parser;
 use cli::*;
 use std::{
-    fs::{create_dir, create_dir_all},
+    fs::{create_dir, create_dir_all, read_dir},
     path::PathBuf,
     process::exit,
     sync::{
@@ -28,24 +28,33 @@ async fn main() {
     };
 
     if let Some(path) = &args.output {
-        if path.exists() {
+        if path.exists() && !args.force {
             eprintln!("ERROR: Output path {} already exists!", path.display());
             exit(0);
         }
     }
 
+    if let Err(e) = read_dir(&base_path) {
+        eprintln!(
+            "ERROR: failed to read input directory {}: {:?}",
+            base_path.display(),
+            e.kind()
+        );
+        exit(1);
+    }
+
     println!("Searching for decryptable files...");
-    let mut total_file_amnount = 0;
+    let mut total_file_amount = 0;
     for path in WalkDir::new(base_path.clone()) {
         let path = path.expect("Failed to get dir");
         let path = restore_filename(path.path().into());
         if path.is_some() {
-            total_file_amnount += 1;
+            total_file_amount += 1;
         }
     }
 
-    if total_file_amnount > 0 {
-        println!("Found {} decryptable files", total_file_amnount);
+    if total_file_amount > 0 {
+        println!("Found {} decryptable files", total_file_amount);
 
         // Exit if just scanning for files
         if args.scan {
@@ -127,7 +136,7 @@ async fn main() {
                 println!(
                     "[{}/{}] Decrypting: {}\n\t-> {}",
                     num_dec_clone.load(Ordering::SeqCst),
-                    total_file_amnount,
+                    total_file_amount,
                     &entry.display(),
                     new_path.display()
                 );

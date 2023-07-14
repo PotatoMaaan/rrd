@@ -28,4 +28,7 @@ pub struct Cli {
     /// Flatten directory structure of the output into a single directory containg all the files (only effective when --output is specified)
     #[arg(short, long)]
     pub flatten_paths: bool,
+    // Continue even if the output directory already exists
+    #[arg(long)]
+    pub force: bool,
 }
