@@ -1,5 +1,6 @@
 use clap::Parser;
 use cli::*;
+use librpgmaker::*;
 use std::{
     fs::{create_dir, create_dir_all, read_dir},
     path::PathBuf,
@@ -16,6 +17,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 mod cli;
+mod librpgmaker;
 mod util;
 
 #[tokio::main]
@@ -42,6 +44,9 @@ async fn main() {
         );
         exit(1);
     }
+
+    let game = RpgGame::new("test").unwrap();
+    let files = game.scan_files();
 
     println!("Searching for decryptable files...");
     let mut total_file_amount = 0;
