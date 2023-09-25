@@ -23,13 +23,32 @@ pub fn decrypt_file(
     new_path: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = read(file_path)?;
+
+    dbg!(&file.len());
+
     let file = file[16..].to_vec();
+
+    dbg!(&file.len());
+
     let cyphertext = file[..16].to_vec();
+
+    dbg!(&cyphertext.len());
+
     let mut plaintext = rpgmv_xor_decrypt(cyphertext, key)?;
+
+    dbg!(&plaintext.len());
+
     let mut file = file[16..].to_vec();
-    //println!("{:?}", plaintext);
+
+    dbg!(&file.len());
+
     plaintext.append(&mut file);
+
+    dbg!(plaintext.len());
+    dbg!(&plaintext);
+
     let mut new_file = File::create(new_path)?;
+
     new_file.write_all(&plaintext)?;
     Ok(())
 }

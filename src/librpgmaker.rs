@@ -7,6 +7,8 @@ use serde_json::Value;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use crate::util::{decrypt_file, rpgmv_xor_decrypt};
+
 const SYS_JSON_PATHS: &[&str] = &["www/data/System.json", "data/System.json"];
 
 #[derive(Debug)]
@@ -99,7 +101,7 @@ impl RpgFile {
         })
     }
 
-    pub fn decrypt(&self, key: &[u8]) -> Vec<u8> {
+    pub fn decrypt(&mut self, key: &[u8]) {
         fn xor(data: &[u8], key: &[u8]) -> Vec<u8> {
             let mut result = vec![];
 
@@ -109,14 +111,38 @@ impl RpgFile {
 
             result
         }
+        dbg!(self.data.len());
+        //dbg!(&self.data);
 
-        let file = &self.data;
-        let file = &file[16..];
+        let file = &self.data[16..];
+
+        dbg!(file.len());
+        //dbg!(&file);
+
         let cyphertext = &file[..16];
+
+        dbg!(cyphertext.len());
+        //dbg!(&cyphertext);
+
         let mut plaintext = xor(cyphertext, key);
+
+        dbg!(plaintext.len());
+        //dbg!(&plaintext);
+
         let mut file = file[16..].to_vec();
+
+        dbg!(file.len());
+        //dbg!(&file);
+
         plaintext.append(&mut file);
-        plaintext
+
+        dbg!(plaintext.len());
+        dbg!(&plaintext);
+        //dbg!(&plaintext);
+
+        self.data = plaintext;
+
+        dbg!(&self.data);
     }
 }
 
@@ -159,23 +185,31 @@ impl RpgGame {
             })
             .filter_map(|entry| RpgFile::from_path(&entry.path()));
 
-        for file in files {
-            let new_dat = file.decrypt(&self.key);
+        for mut file in files {
+            file.decrypt(&self.key);
 
             let new_path = match output {
                 OutputSettings::InPlace => file.path,
-                OutputSettings::Specific { dir } => dir.join(file.path.strip_prefix(&self.path)?),
+                OutputSettings::Specific { dir } => {
+                    let new_path = dir.join(file.path.strip_prefix(&self.path)?);
+                    fs::create_dir_all(&new_path.parent().expect("No parent"))?;
+                    new_path
+                }
                 OutputSettings::Flatten { dir } => {
+                    fs::create_dir_all(&dir)?;
+
                     let path_str = dir
                         .to_string_lossy()
                         .replace(std::path::MAIN_SEPARATOR, "_");
                     let uuid: String = Uuid::new_v4().to_string().chars().take(10).collect();
                     let path_str = PathBuf::from(format!("{}_{}", path_str, uuid));
-                    dir.join(path_str)
+                    let mut new_dir = dir.join(path_str);
+                    new_dir.set_extension(file.file_type.to_extension());
+                    new_dir
                 }
             };
 
-            fs::write(&new_path, new_dat)?;
+            fs::write(&new_path, file.data)?;
         }
 
         Ok(())
@@ -210,5 +244,36 @@ impl RpgGame {
             Ok(v) => Ok(v),
             Err(e) => Err(Error::SystemJsonInvalid(e)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        str::FromStr,
+    };
+
+    use crate::{librpgmaker::RpgFile, util::decrypt_file};
+
+    #[test]
+    fn test_decrypt() {
+        const PATH: &str = "test_files/tg2/www/img/pictures/a1.rpgmvp";
+        const PATH_FIN: &str = "test_files/spango.png";
+
+        let key = &"f05da1b7948705812a3812af1bab7eef"
+            .bytes()
+            .collect::<Vec<_>>();
+
+        let mut file = RpgFile::from_path(Path::new(PATH)).unwrap();
+        file.decrypt(key);
+
+        decrypt_file(PATH.into(), key, &PathBuf::from_str(PATH_FIN).unwrap()).unwrap();
+        let file_old = fs::read(PATH).unwrap();
+
+        println!("{:?}\n\n\n\n{:?}\n\n\n\n", file.data, file_old);
+
+        assert_eq!(file.data, file_old);
     }
 }
