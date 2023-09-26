@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{fmt::Display, path::Path, process::exit, time::Instant};
 
 use clap::Parser;
 use cli::*;
@@ -7,39 +7,72 @@ use librpgmaker::*;
 
 mod cli;
 mod librpgmaker;
-mod util;
 
 fn main() {
     let args = Cli::parse();
 
-    let mut game = RpgGame::new(args.directory, !args.quiet).unwrap();
+    match args.command {
+        Commands::Decrypt { game_dir, output } => {
+            let mut game = get_game_or_exit(&game_dir, !args.quiet);
 
-    println!("Scanning...");
-    let files = game.scan_files().unwrap();
-    let count = count_variants(files.iter());
-    println!(
-        "Found {} images, {} audios and {} videos",
-        count.image, count.audio, count.video
-    );
+            let files = scan_or_exit(&mut game);
+            let count = count_variants(files.iter());
+            println!("\n{}", count);
 
-    let output_options = match (args.flatten_paths, args.output) {
-        (true, None) => panic!("invalid args"),
-        (true, Some(out_dir)) => OutputSettings::Flatten { dir: out_dir },
-        (false, None) => OutputSettings::InPlace,
-        (false, Some(out_dir)) => OutputSettings::Specific { dir: out_dir },
-    };
+            println!("Starting decryption...");
 
-    println!("Decrypting game...");
-    let start_time = Instant::now();
-    let num_dec = game.decrypt_all(&output_options).unwrap();
+            let dec_start = Instant::now();
+            let num_dec = match game.decrypt_all(&output.unwrap_or(OutputSettings::InPlace)) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("\nFailed to decrypt the game: {:?}", e);
+                    exit(1);
+                }
+            };
+            let taken = dec_start.elapsed();
 
-    println!(
-        "Decrypted {} files in {:.2?}",
-        num_dec,
-        start_time.elapsed()
-    );
+            println!("Decrypted {} files in {:.2?}", num_dec, taken);
+        }
 
-    dbg!(args.quiet);
+        Commands::Scan { game_dir } => {
+            let mut game = get_game_or_exit(&game_dir, false);
+            let files = scan_or_exit(&mut game);
+
+            let count = count_variants(files.iter());
+            println!("{}", count);
+        }
+
+        Commands::Key { game_dir } => {
+            let game = get_game_or_exit(&game_dir, false);
+            let key = game.get_key();
+
+            pretty_print_key(&key);
+        }
+    }
+}
+
+fn get_game_or_exit(dir: &Path, verbose: bool) -> RpgGame {
+    RpgGame::new(dir, verbose).unwrap_or_else(|e| {
+        eprintln!("Failed to open game dir: {:?}", e);
+        exit(1);
+    })
+}
+
+fn scan_or_exit(game: &mut RpgGame) -> Vec<RpgFileType> {
+    match game.scan_files() {
+        Ok(files) => files,
+        Err(e) => {
+            eprintln!("Failed to scan the game: {:?}", e);
+            exit(1);
+        }
+    }
+}
+
+fn pretty_print_key(key: &RpgKey) {
+    println!("Found the following key:\n");
+
+    println!("  Text : {}", key.string);
+    println!("  Bytes: {:02X?}\n", key.bytes);
 }
 
 fn count_variants<'a>(items: impl Iterator<Item = &'a RpgFileType>) -> Counts {
@@ -57,4 +90,14 @@ struct Counts {
     audio: usize,
     video: usize,
     image: usize,
+}
+
+impl Display for Counts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Found {} images, {} audios and {} videos",
+            self.image, self.audio, self.video
+        )
+    }
 }

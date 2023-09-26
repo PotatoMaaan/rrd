@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf, StripPrefixError},
 };
 
+use clap::Subcommand;
 use serde_json::Value;
 use walkdir::WalkDir;
 
@@ -13,6 +14,7 @@ const SYS_JSON_PATHS: &[&str] = &["www/data/System.json", "data/System.json"];
 pub struct RpgGame {
     path: PathBuf,
     key: Vec<u8>,
+    orig_key: String,
     system_json: SystemJson,
     verbose: bool,
     num_files: Option<usize>,
@@ -26,23 +28,24 @@ struct SystemJson {
 }
 
 impl SystemJson {
-    fn set_decrypt(&mut self) -> Result<(), Error> {
+    fn set_decrypt(&mut self, encrypted: bool) -> Result<(), Error> {
         let mut set_key = |key: &str| -> Result<(), Error> {
             Ok(
                 *self.data.get_mut(key).ok_or(Error::SystemJsonKeyNotFound)? =
-                    Value::Bool(self.encrypted),
+                    Value::Bool(encrypted),
             )
         };
 
         set_key("hasEncryptedAudio")?;
         set_key("hasEncryptedImages")?;
+        self.encrypted = encrypted;
 
         Ok(())
     }
 
     fn write(&mut self) -> Result<(), Error> {
         if self.encrypted {
-            self.set_decrypt()?;
+            self.set_decrypt(false)?;
         }
 
         let data = self.data.to_string();
@@ -59,6 +62,7 @@ pub enum Error {
     SystemJsonInvalidKey,
     StrixPrefixFailed(StripPrefixError),
     KeyParseError(ParseIntError),
+    OutputDirExists,
 }
 
 impl From<ParseIntError> for Error {
@@ -151,7 +155,7 @@ impl RpgFile {
 
     pub fn decrypt(&self, key: &[u8]) -> Vec<u8> {
         fn xor(data: &[u8], key: &[u8]) -> Vec<u8> {
-            let mut result = vec![];
+            let mut result = Vec::with_capacity(data.len());
 
             for i in 0..data.len() {
                 result.push(data[i] ^ key[i % key.len()]);
@@ -169,23 +173,36 @@ impl RpgFile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Subcommand)]
 pub enum OutputSettings {
+    /// Decrypts the game's files in place (default)
     InPlace,
+
+    // /// Overwrites the games files with the decrypted ones.
+    // Overwrite,
+    /// Leaves the game untouched, places files into given directory while maintining original dir structure.
     Specific { dir: PathBuf },
+
+    /// Same as specific but flattens the dir structure
     Flatten { dir: PathBuf },
+}
+
+pub struct RpgKey<'a> {
+    pub string: &'a str,
+    pub bytes: &'a [u8],
 }
 
 impl RpgGame {
     /// Creates a new RpgGame instance from a given path
     pub fn new<P: AsRef<Path>>(path: P, verbose: bool) -> Result<Self, Error> {
         let system_json = Self::get_system_json(path.as_ref())?;
-        let key = Self::get_key(&system_json.data)?;
+        let (key, orig_key) = Self::try_get_key(&system_json.data)?;
 
         Ok(Self {
             num_files: None,
             verbose,
             key,
+            orig_key,
             system_json,
             path: path.as_ref().to_path_buf(),
         })
@@ -209,7 +226,7 @@ impl RpgGame {
     /// Decrypt all files in the game directory.
     ///
     /// Returns the number of files decrypted or an error
-    pub fn decrypt_all(&mut self, output: &OutputSettings) -> Result<u32, Error> {
+    pub fn decrypt_all(&mut self, output: &OutputSettings) -> Result<u64, Error> {
         let files = WalkDir::new(&self.path)
             .into_iter()
             .filter_map(|path| match path {
@@ -219,6 +236,7 @@ impl RpgGame {
             .filter_map(|entry| RpgFile::from_path(&entry.path()));
 
         let mut num_decrypted = 0;
+
         for file in files {
             num_decrypted += 1;
 
@@ -233,13 +251,24 @@ impl RpgGame {
             let decrypted = file.decrypt(&self.key);
 
             let new_path = match output {
-                OutputSettings::InPlace => file.path,
+                OutputSettings::InPlace => {
+                    self.system_json.encrypted = false;
+                    file.path
+                }
                 OutputSettings::Specific { dir } => {
+                    if dir.exists() {
+                        return Err(Error::OutputDirExists);
+                    }
+
                     let new_path = dir.join(file.path.strip_prefix(&self.path)?);
                     fs::create_dir_all(&new_path.parent().expect("No parent"))?;
                     new_path
                 }
                 OutputSettings::Flatten { dir } => {
+                    if dir.exists() {
+                        return Err(Error::OutputDirExists);
+                    }
+
                     fs::create_dir_all(&dir)?;
 
                     let path_str = file
@@ -257,13 +286,20 @@ impl RpgGame {
 
             fs::write(&new_path, decrypted)?;
         }
-        self.system_json.encrypted = false;
+
         self.system_json.write()?;
 
         Ok(num_decrypted)
     }
 
-    fn get_key(system_json: &Value) -> Result<Vec<u8>, Error> {
+    pub fn get_key(&self) -> RpgKey {
+        RpgKey {
+            string: &self.orig_key,
+            bytes: &self.key,
+        }
+    }
+
+    fn try_get_key(system_json: &Value) -> Result<(Vec<u8>, String), Error> {
         fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
             (0..s.len())
                 .step_by(2)
@@ -273,7 +309,7 @@ impl RpgGame {
 
         match system_json.get("encryptionKey") {
             Some(key) => match key.as_str() {
-                Some(key) => Ok(decode_hex(key)?),
+                Some(key) => Ok((decode_hex(key)?, key.to_owned())),
                 None => Err(Error::SystemJsonInvalidKey),
             },
             None => Err(Error::SystemJsonKeyNotFound),
@@ -297,7 +333,7 @@ impl RpgGame {
         let system = fs::read_to_string(system_path)?;
         match serde_json::from_str(&system) {
             Ok(v) => Ok(SystemJson {
-                encrypted: false,
+                encrypted: true,
                 data: v,
                 path: system_path.to_owned(),
             }),
