@@ -4,7 +4,6 @@ use std::{
     path::{Path, PathBuf, StripPrefixError},
 };
 
-use clap::Subcommand;
 use serde_json::Value;
 use walkdir::WalkDir;
 
@@ -64,7 +63,7 @@ pub enum Error {
     SystemJsonInvalidKey { key: String },
     StrixPrefixFailed(StripPrefixError),
     KeyParseError(ParseIntError),
-    OutputDirExists,
+    OutputDirExists(PathBuf),
 }
 
 impl From<ParseIntError> for Error {
@@ -181,18 +180,19 @@ impl RpgFile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Subcommand)]
+#[cfg_attr(feature = "clap", derive(clap::Subcommand))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OutputSettings {
-    /// Decrypts the game's files in place (default)
-    InPlace,
+    /// Decrypts the game's files in next to the encrypted files (default)
+    NextTo,
 
     /// Overwrites the games files with the decrypted ones.
-    Overwrite,
+    Replace,
 
     /// Leaves the game untouched, places files into given directory while maintining original dir structure.
-    Specific { dir: PathBuf },
+    Output { dir: PathBuf },
 
-    /// Same as specific but flattens the dir structure
+    /// Same as output but flattens the dir structure
     Flatten { dir: PathBuf },
 }
 
@@ -265,30 +265,22 @@ impl RpgGame {
             let decrypted = file.decrypt(&self.key);
 
             let new_path = match output {
-                OutputSettings::InPlace => file.new_path,
+                OutputSettings::NextTo => file.new_path,
 
-                OutputSettings::Overwrite => {
+                OutputSettings::Replace => {
                     self.system_json.encrypted = false;
                     dbg!(&file.orig_path);
                     fs::remove_file(file.orig_path)?;
                     file.new_path
                 }
 
-                OutputSettings::Specific { dir } => {
-                    if dir.exists() {
-                        return Err(Error::OutputDirExists);
-                    }
-
+                OutputSettings::Output { dir } => {
                     let new_path = dir.join(file.new_path.strip_prefix(&self.path)?);
                     fs::create_dir_all(&new_path.parent().expect("No parent"))?;
                     new_path
                 }
 
                 OutputSettings::Flatten { dir } => {
-                    if dir.exists() {
-                        return Err(Error::OutputDirExists);
-                    }
-
                     fs::create_dir_all(&dir)?;
 
                     let path_str = file
@@ -392,9 +384,5 @@ fn check_encrypted(value: &Value) -> Result<bool, Error> {
     let audio = get_key(HAS_ENC_AUIDO_KEY)?;
     let img = get_key(HAS_ENC_IMG_KEY)?;
 
-    if audio != img {
-        panic!("System.json indicates that audio and img encryption is not the same, this is currenty unsupported.")
-    }
-
-    Ok(audio)
+    Ok(audio || img)
 }

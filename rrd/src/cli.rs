@@ -1,5 +1,5 @@
-use crate::librpgmaker::OutputSettings;
 use clap::{command, Parser, Subcommand};
+use librpgmaker::OutputSettings;
 use std::path::PathBuf;
 
 /// Decrypt files encryped by RPMVs default encryprion{n}{n}

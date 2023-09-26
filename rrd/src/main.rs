@@ -6,7 +6,6 @@ use itertools::Itertools;
 use librpgmaker::*;
 
 mod cli;
-mod librpgmaker;
 
 fn main() {
     let args = Cli::parse();
@@ -24,7 +23,7 @@ fn main() {
             println!("Starting decryption...");
 
             let dec_start = Instant::now();
-            let num_dec = match game.decrypt_all(&output.unwrap_or(OutputSettings::InPlace)) {
+            let num_dec = match game.decrypt_all(&output.unwrap_or(OutputSettings::NextTo)) {
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!("\nFailed to decrypt the game: {:?}", e);
