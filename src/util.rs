@@ -53,6 +53,20 @@ pub fn decrypt_file(
     Ok(())
 }
 
+pub fn decrypt_file_2(file: Vec<u8>, key: &Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let file = file[16..].to_vec();
+
+    let cyphertext = file[..16].to_vec();
+
+    let mut plaintext = rpgmv_xor_decrypt(cyphertext, key)?;
+
+    let mut file = file[16..].to_vec();
+
+    plaintext.append(&mut file);
+
+    Ok(plaintext)
+}
+
 pub fn restore_filename(mut path: PathBuf) -> Option<PathBuf> {
     let extension = path.extension()?.to_owned();
     match extension.to_str()? {

@@ -1,13 +1,11 @@
 use std::{
     fs,
+    num::ParseIntError,
     path::{Path, PathBuf, StripPrefixError},
 };
 
 use serde_json::Value;
-use uuid::Uuid;
 use walkdir::WalkDir;
-
-use crate::util::{decrypt_file, rpgmv_xor_decrypt};
 
 const SYS_JSON_PATHS: &[&str] = &["www/data/System.json", "data/System.json"];
 
@@ -15,7 +13,41 @@ const SYS_JSON_PATHS: &[&str] = &["www/data/System.json", "data/System.json"];
 pub struct RpgGame {
     path: PathBuf,
     key: Vec<u8>,
-    system_json: Value,
+    system_json: SystemJson,
+    verbose: bool,
+    num_files: Option<usize>,
+}
+
+#[derive(Debug)]
+struct SystemJson {
+    data: Value,
+    path: PathBuf,
+    encrypted: bool,
+}
+
+impl SystemJson {
+    fn set_decrypt(&mut self) -> Result<(), Error> {
+        let mut set_key = |key: &str| -> Result<(), Error> {
+            Ok(
+                *self.data.get_mut(key).ok_or(Error::SystemJsonKeyNotFound)? =
+                    Value::Bool(self.encrypted),
+            )
+        };
+
+        set_key("hasEncryptedAudio")?;
+        set_key("hasEncryptedImages")?;
+
+        Ok(())
+    }
+
+    fn write(&mut self) -> Result<(), Error> {
+        if self.encrypted {
+            self.set_decrypt()?;
+        }
+
+        let data = self.data.to_string();
+        Ok(fs::write(&self.path, data)?)
+    }
 }
 
 #[derive(Debug)]
@@ -23,9 +55,16 @@ pub enum Error {
     SystemJsonNotFound,
     IoError(std::io::Error),
     SystemJsonInvalid(serde_json::Error),
-    SystemJsonNoKey,
+    SystemJsonKeyNotFound,
     SystemJsonInvalidKey,
     StrixPrefixFailed(StripPrefixError),
+    KeyParseError(ParseIntError),
+}
+
+impl From<ParseIntError> for Error {
+    fn from(value: ParseIntError) -> Self {
+        Self::KeyParseError(value)
+    }
 }
 
 impl From<std::io::Error> for Error {
@@ -40,7 +79,7 @@ impl From<StripPrefixError> for Error {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RpgFileType {
     RpgAudio,
     RpgVideo,
@@ -101,7 +140,16 @@ impl RpgFile {
         })
     }
 
-    pub fn decrypt(&mut self, key: &[u8]) {
+    #[allow(unused)]
+    pub fn from_parts(data: Vec<u8>, file_type: RpgFileType, path: PathBuf) -> Self {
+        Self {
+            data,
+            file_type,
+            path,
+        }
+    }
+
+    pub fn decrypt(&self, key: &[u8]) -> Vec<u8> {
         fn xor(data: &[u8], key: &[u8]) -> Vec<u8> {
             let mut result = vec![];
 
@@ -111,38 +159,13 @@ impl RpgFile {
 
             result
         }
-        dbg!(self.data.len());
-        //dbg!(&self.data);
 
         let file = &self.data[16..];
-
-        dbg!(file.len());
-        //dbg!(&file);
-
         let cyphertext = &file[..16];
-
-        dbg!(cyphertext.len());
-        //dbg!(&cyphertext);
-
         let mut plaintext = xor(cyphertext, key);
-
-        dbg!(plaintext.len());
-        //dbg!(&plaintext);
-
         let mut file = file[16..].to_vec();
-
-        dbg!(file.len());
-        //dbg!(&file);
-
         plaintext.append(&mut file);
-
-        dbg!(plaintext.len());
-        dbg!(&plaintext);
-        //dbg!(&plaintext);
-
-        self.data = plaintext;
-
-        dbg!(&self.data);
+        return plaintext;
     }
 }
 
@@ -154,29 +177,39 @@ pub enum OutputSettings {
 }
 
 impl RpgGame {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    /// Creates a new RpgGame instance from a given path
+    pub fn new<P: AsRef<Path>>(path: P, verbose: bool) -> Result<Self, Error> {
         let system_json = Self::get_system_json(path.as_ref())?;
-        let key = Self::get_key(&system_json)?;
+        let key = Self::get_key(&system_json.data)?;
 
         Ok(Self {
+            num_files: None,
+            verbose,
             key,
             system_json,
             path: path.as_ref().to_path_buf(),
         })
     }
 
-    pub fn scan_files(&self) -> Result<Vec<RpgFileType>, Error> {
-        Ok(WalkDir::new(&self.path)
+    /// Scans files in the game directory and returns a list of all files that can be decrypted
+    pub fn scan_files(&mut self) -> Result<Vec<RpgFileType>, Error> {
+        let files: Vec<_> = WalkDir::new(&self.path)
             .into_iter()
             .filter_map(|path| match path {
                 Ok(v) => Some(v),
                 Err(_) => None,
             })
             .filter_map(|entry| RpgFileType::scan(&entry.path()))
-            .collect())
+            .collect();
+
+        self.num_files = Some(files.len());
+        Ok(files)
     }
 
-    pub fn decrypt_all(&self, output: &OutputSettings) -> Result<(), Error> {
+    /// Decrypt all files in the game directory.
+    ///
+    /// Returns the number of files decrypted or an error
+    pub fn decrypt_all(&mut self, output: &OutputSettings) -> Result<u32, Error> {
         let files = WalkDir::new(&self.path)
             .into_iter()
             .filter_map(|path| match path {
@@ -185,8 +218,19 @@ impl RpgGame {
             })
             .filter_map(|entry| RpgFile::from_path(&entry.path()));
 
-        for mut file in files {
-            file.decrypt(&self.key);
+        let mut num_decrypted = 0;
+        for file in files {
+            num_decrypted += 1;
+
+            match (self.num_files, self.verbose) {
+                (Some(num_files), true) => {
+                    println!("[{}/{}] {}", num_decrypted, num_files, file.path.display())
+                }
+                (None, true) => println!("[{}] {}", num_decrypted, file.path.display()),
+                _ => {}
+            }
+
+            let decrypted = file.decrypt(&self.key);
 
             let new_path = match output {
                 OutputSettings::InPlace => file.path,
@@ -198,34 +242,45 @@ impl RpgGame {
                 OutputSettings::Flatten { dir } => {
                     fs::create_dir_all(&dir)?;
 
-                    let path_str = dir
+                    let path_str = file
+                        .path
+                        .strip_prefix(&self.path)
+                        .expect("no parent")
                         .to_string_lossy()
                         .replace(std::path::MAIN_SEPARATOR, "_");
-                    let uuid: String = Uuid::new_v4().to_string().chars().take(10).collect();
-                    let path_str = PathBuf::from(format!("{}_{}", path_str, uuid));
-                    let mut new_dir = dir.join(path_str);
+
+                    let mut new_dir = dir.join(PathBuf::from(path_str));
                     new_dir.set_extension(file.file_type.to_extension());
                     new_dir
                 }
             };
 
-            fs::write(&new_path, file.data)?;
+            fs::write(&new_path, decrypted)?;
         }
+        self.system_json.encrypted = false;
+        self.system_json.write()?;
 
-        Ok(())
+        Ok(num_decrypted)
     }
 
     fn get_key(system_json: &Value) -> Result<Vec<u8>, Error> {
+        fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+                .collect()
+        }
+
         match system_json.get("encryptionKey") {
             Some(key) => match key.as_str() {
-                Some(key) => Ok(key.bytes().collect()),
+                Some(key) => Ok(decode_hex(key)?),
                 None => Err(Error::SystemJsonInvalidKey),
             },
-            None => Err(Error::SystemJsonNoKey),
+            None => Err(Error::SystemJsonKeyNotFound),
         }
     }
 
-    fn get_system_json(path: &Path) -> Result<Value, Error> {
+    fn get_system_json(path: &Path) -> Result<SystemJson, Error> {
         let system_paths: Vec<PathBuf> = SYS_JSON_PATHS
             .iter()
             .map(|x| path.join(PathBuf::from(x)))
@@ -241,39 +296,12 @@ impl RpgGame {
 
         let system = fs::read_to_string(system_path)?;
         match serde_json::from_str(&system) {
-            Ok(v) => Ok(v),
+            Ok(v) => Ok(SystemJson {
+                encrypted: false,
+                data: v,
+                path: system_path.to_owned(),
+            }),
             Err(e) => Err(Error::SystemJsonInvalid(e)),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-        str::FromStr,
-    };
-
-    use crate::{librpgmaker::RpgFile, util::decrypt_file};
-
-    #[test]
-    fn test_decrypt() {
-        const PATH: &str = "test_files/tg2/www/img/pictures/a1.rpgmvp";
-        const PATH_FIN: &str = "test_files/spango.png";
-
-        let key = &"f05da1b7948705812a3812af1bab7eef"
-            .bytes()
-            .collect::<Vec<_>>();
-
-        let mut file = RpgFile::from_path(Path::new(PATH)).unwrap();
-        file.decrypt(key);
-
-        decrypt_file(PATH.into(), key, &PathBuf::from_str(PATH_FIN).unwrap()).unwrap();
-        let file_old = fs::read(PATH).unwrap();
-
-        println!("{:?}\n\n\n\n{:?}\n\n\n\n", file.data, file_old);
-
-        assert_eq!(file.data, file_old);
     }
 }

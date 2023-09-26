@@ -1,28 +1,26 @@
+use std::time::Instant;
+
 use clap::Parser;
 use cli::*;
+use itertools::Itertools;
 use librpgmaker::*;
 
 mod cli;
 mod librpgmaker;
 mod util;
 
-#[derive(Debug)]
-struct Counts {
-    audo: usize,
-    video: usize,
-    img: usize,
-}
-
 fn main() {
     let args = Cli::parse();
 
-    let game = RpgGame::new(args.directory).unwrap();
+    let mut game = RpgGame::new(args.directory, !args.quiet).unwrap();
 
     println!("Scanning...");
     let files = game.scan_files().unwrap();
-    let counts = count_types(&files);
-
-    println!("Found:\n{:#?}", counts);
+    let count = count_variants(files.iter());
+    println!(
+        "Found {} images, {} audios and {} videos",
+        count.image, count.audio, count.video
+    );
 
     let output_options = match (args.flatten_paths, args.output) {
         (true, None) => panic!("invalid args"),
@@ -31,25 +29,32 @@ fn main() {
         (false, Some(out_dir)) => OutputSettings::Specific { dir: out_dir },
     };
 
-    game.decrypt_all(&output_options).unwrap();
+    println!("Decrypting game...");
+    let start_time = Instant::now();
+    let num_dec = game.decrypt_all(&output_options).unwrap();
+
+    println!(
+        "Decrypted {} files in {:.2?}",
+        num_dec,
+        start_time.elapsed()
+    );
+
+    dbg!(args.quiet);
 }
 
-fn count_types(files: &[RpgFileType]) -> Counts {
-    let num_audio = files
-        .iter()
-        .filter(|t| t == &&RpgFileType::RpgAudio)
-        .count();
-    let num_video = files
-        .iter()
-        .filter(|t| t == &&RpgFileType::RpgVideo)
-        .count();
-    let num_img = files
-        .iter()
-        .filter(|t| t == &&RpgFileType::RpgImage)
-        .count();
+fn count_variants<'a>(items: impl Iterator<Item = &'a RpgFileType>) -> Counts {
+    let counts = items.counts();
+
     Counts {
-        audo: num_audio,
-        video: num_video,
-        img: num_img,
+        audio: *counts.get(&RpgFileType::RpgAudio).unwrap_or(&0),
+        video: *counts.get(&RpgFileType::RpgVideo).unwrap_or(&0),
+        image: *counts.get(&RpgFileType::RpgImage).unwrap_or(&0),
     }
+}
+
+#[derive(Debug)]
+struct Counts {
+    audio: usize,
+    video: usize,
+    image: usize,
 }
