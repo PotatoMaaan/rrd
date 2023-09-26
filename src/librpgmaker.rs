@@ -9,6 +9,9 @@ use serde_json::Value;
 use walkdir::WalkDir;
 
 const SYS_JSON_PATHS: &[&str] = &["www/data/System.json", "data/System.json"];
+const HAS_ENC_AUIDO_KEY: &str = "hasEncryptedAudio";
+const HAS_ENC_IMG_KEY: &str = "hasEncryptedImages";
+const KEY_KEY: &str = "encryptionKey";
 
 #[derive(Debug)]
 pub struct RpgGame {
@@ -30,23 +33,22 @@ struct SystemJson {
 impl SystemJson {
     fn set_decrypt(&mut self, encrypted: bool) -> Result<(), Error> {
         let mut set_key = |key: &str| -> Result<(), Error> {
-            Ok(
-                *self.data.get_mut(key).ok_or(Error::SystemJsonKeyNotFound)? =
-                    Value::Bool(encrypted),
-            )
+            let json_key = self.data.get_mut(key).ok_or(Error::SystemJsonKeyNotFound {
+                key: key.to_string(),
+            })?;
+
+            Ok(*json_key = Value::Bool(encrypted))
         };
 
-        set_key("hasEncryptedAudio")?;
-        set_key("hasEncryptedImages")?;
+        set_key(HAS_ENC_AUIDO_KEY)?;
+        set_key(HAS_ENC_IMG_KEY)?;
         self.encrypted = encrypted;
 
         Ok(())
     }
 
     fn write(&mut self) -> Result<(), Error> {
-        if self.encrypted {
-            self.set_decrypt(false)?;
-        }
+        self.set_decrypt(self.encrypted)?;
 
         let data = self.data.to_string();
         Ok(fs::write(&self.path, data)?)
@@ -58,8 +60,8 @@ pub enum Error {
     SystemJsonNotFound,
     IoError(std::io::Error),
     SystemJsonInvalid(serde_json::Error),
-    SystemJsonKeyNotFound,
-    SystemJsonInvalidKey,
+    SystemJsonKeyNotFound { key: String },
+    SystemJsonInvalidKey { key: String },
     StrixPrefixFailed(StripPrefixError),
     KeyParseError(ParseIntError),
     OutputDirExists,
@@ -119,7 +121,8 @@ impl RpgFileType {
 pub struct RpgFile {
     data: Vec<u8>,
     file_type: RpgFileType,
-    path: PathBuf,
+    new_path: PathBuf,
+    orig_path: PathBuf,
 }
 
 impl RpgFile {
@@ -134,22 +137,27 @@ impl RpgFile {
         let ext = file_type.to_extension();
 
         // checked before
-        let mut path = path.to_path_buf();
-        let _ = path.set_extension(ext);
+        let mut new_path = path.to_path_buf();
+        let _ = new_path.set_extension(ext);
 
         Some(Self {
             data,
             file_type,
-            path,
+            new_path,
+            orig_path: path.to_path_buf(),
         })
     }
 
     #[allow(unused)]
-    pub fn from_parts(data: Vec<u8>, file_type: RpgFileType, path: PathBuf) -> Self {
+    pub fn from_parts(data: Vec<u8>, file_type: RpgFileType, orig_path: PathBuf) -> Self {
+        let mut new_path = orig_path.clone();
+        new_path.set_extension(file_type.to_extension());
+
         Self {
             data,
             file_type,
-            path,
+            orig_path,
+            new_path,
         }
     }
 
@@ -178,8 +186,9 @@ pub enum OutputSettings {
     /// Decrypts the game's files in place (default)
     InPlace,
 
-    // /// Overwrites the games files with the decrypted ones.
-    // Overwrite,
+    /// Overwrites the games files with the decrypted ones.
+    Overwrite,
+
     /// Leaves the game untouched, places files into given directory while maintining original dir structure.
     Specific { dir: PathBuf },
 
@@ -242,28 +251,39 @@ impl RpgGame {
 
             match (self.num_files, self.verbose) {
                 (Some(num_files), true) => {
-                    println!("[{}/{}] {}", num_decrypted, num_files, file.path.display())
+                    println!(
+                        "[{}/{}] {}",
+                        num_decrypted,
+                        num_files,
+                        file.orig_path.display()
+                    )
                 }
-                (None, true) => println!("[{}] {}", num_decrypted, file.path.display()),
+                (None, true) => println!("[{}] {}", num_decrypted, file.orig_path.display()),
                 _ => {}
             }
 
             let decrypted = file.decrypt(&self.key);
 
             let new_path = match output {
-                OutputSettings::InPlace => {
+                OutputSettings::InPlace => file.new_path,
+
+                OutputSettings::Overwrite => {
                     self.system_json.encrypted = false;
-                    file.path
+                    dbg!(&file.orig_path);
+                    fs::remove_file(file.orig_path)?;
+                    file.new_path
                 }
+
                 OutputSettings::Specific { dir } => {
                     if dir.exists() {
                         return Err(Error::OutputDirExists);
                     }
 
-                    let new_path = dir.join(file.path.strip_prefix(&self.path)?);
+                    let new_path = dir.join(file.new_path.strip_prefix(&self.path)?);
                     fs::create_dir_all(&new_path.parent().expect("No parent"))?;
                     new_path
                 }
+
                 OutputSettings::Flatten { dir } => {
                     if dir.exists() {
                         return Err(Error::OutputDirExists);
@@ -272,7 +292,7 @@ impl RpgGame {
                     fs::create_dir_all(&dir)?;
 
                     let path_str = file
-                        .path
+                        .new_path
                         .strip_prefix(&self.path)
                         .expect("no parent")
                         .to_string_lossy()
@@ -299,6 +319,10 @@ impl RpgGame {
         }
     }
 
+    pub fn is_encrypted(&self) -> bool {
+        self.system_json.encrypted
+    }
+
     fn try_get_key(system_json: &Value) -> Result<(Vec<u8>, String), Error> {
         fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
             (0..s.len())
@@ -307,12 +331,16 @@ impl RpgGame {
                 .collect()
         }
 
-        match system_json.get("encryptionKey") {
+        match system_json.get(KEY_KEY) {
             Some(key) => match key.as_str() {
                 Some(key) => Ok((decode_hex(key)?, key.to_owned())),
-                None => Err(Error::SystemJsonInvalidKey),
+                None => Err(Error::SystemJsonInvalidKey {
+                    key: key.to_string(),
+                }),
             },
-            None => Err(Error::SystemJsonKeyNotFound),
+            None => Err(Error::SystemJsonKeyNotFound {
+                key: KEY_KEY.to_string(),
+            }),
         }
     }
 
@@ -331,13 +359,42 @@ impl RpgGame {
         };
 
         let system = fs::read_to_string(system_path)?;
-        match serde_json::from_str(&system) {
+        match serde_json::from_str::<Value>(&system) {
             Ok(v) => Ok(SystemJson {
-                encrypted: true,
+                encrypted: check_encrypted(&v)?,
                 data: v,
                 path: system_path.to_owned(),
             }),
             Err(e) => Err(Error::SystemJsonInvalid(e)),
         }
     }
+}
+
+fn check_encrypted(value: &Value) -> Result<bool, Error> {
+    let get_key = |key: &str| -> Result<bool, Error> {
+        match value.get(key) {
+            Some(val) => match val.as_bool() {
+                Some(v) => Ok(v),
+                None => {
+                    return Err(Error::SystemJsonInvalidKey {
+                        key: val.to_string(),
+                    })
+                }
+            },
+            None => {
+                return Err(Error::SystemJsonKeyNotFound {
+                    key: key.to_string(),
+                })
+            }
+        }
+    };
+
+    let audio = get_key(HAS_ENC_AUIDO_KEY)?;
+    let img = get_key(HAS_ENC_IMG_KEY)?;
+
+    if audio != img {
+        panic!("System.json indicates that audio and img encryption is not the same, this is currenty unsupported.")
+    }
+
+    Ok(audio)
 }

@@ -15,6 +15,8 @@ fn main() {
         Commands::Decrypt { game_dir, output } => {
             let mut game = get_game_or_exit(&game_dir, !args.quiet);
 
+            pretty_print_key(&game);
+
             let files = scan_or_exit(&mut game);
             let count = count_variants(files.iter());
             println!("\n{}", count);
@@ -31,7 +33,11 @@ fn main() {
             };
             let taken = dec_start.elapsed();
 
-            println!("Decrypted {} files in {:.2?}", num_dec, taken);
+            if num_dec > 0 {
+                println!("Decrypted {} files in {:.2?}", num_dec, taken);
+            } else {
+                eprintln!("No decryptable files found.");
+            }
         }
 
         Commands::Scan { game_dir } => {
@@ -44,9 +50,8 @@ fn main() {
 
         Commands::Key { game_dir } => {
             let game = get_game_or_exit(&game_dir, false);
-            let key = game.get_key();
 
-            pretty_print_key(&key);
+            pretty_print_key(&game);
         }
     }
 }
@@ -68,7 +73,15 @@ fn scan_or_exit(game: &mut RpgGame) -> Vec<RpgFileType> {
     }
 }
 
-fn pretty_print_key(key: &RpgKey) {
+fn pretty_print_key(game: &RpgGame) {
+    let key = game.get_key();
+
+    if game.is_encrypted() {
+        println!("The game is reporting that it is encrypted.");
+    } else {
+        println!("The game is reporting that it is NOT encrypted.");
+    }
+
     println!("Found the following key:\n");
 
     println!("  Text : {}", key.string);
@@ -96,7 +109,7 @@ impl Display for Counts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Found {} images, {} audios and {} videos",
+            "Found {} decryptable images, {} audios and {} videos",
             self.image, self.audio, self.video
         )
     }
