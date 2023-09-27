@@ -1,17 +1,29 @@
+//! A Library to interact with and decrypt RpgMaker games.
+//! To get started, see the `RpgGame` struct.
+
+use error::Error;
+use rpg_file::{RpgFile, RpgFileType};
+use serde_json::Value;
 use std::{
     fs,
     num::ParseIntError,
-    path::{Path, PathBuf, StripPrefixError},
+    path::{Path, PathBuf},
 };
-
-use serde_json::Value;
+use system_json::SystemJson;
 use walkdir::WalkDir;
 
 const SYS_JSON_PATHS: &[&str] = &["www/data/System.json", "data/System.json"];
 const HAS_ENC_AUIDO_KEY: &str = "hasEncryptedAudio";
 const HAS_ENC_IMG_KEY: &str = "hasEncryptedImages";
-const KEY_KEY: &str = "encryptionKey";
+const ENCKEY_KEY: &str = "encryptionKey";
 
+pub mod error;
+pub mod prelude;
+mod rpg_file;
+mod system_json;
+mod tests;
+
+/// Represents an RpgMaker game.
 #[derive(Debug)]
 pub struct RpgGame {
     path: PathBuf,
@@ -22,164 +34,10 @@ pub struct RpgGame {
     num_files: Option<usize>,
 }
 
-#[derive(Debug)]
-struct SystemJson {
-    data: Value,
-    path: PathBuf,
-    encrypted: bool,
-}
-
-impl SystemJson {
-    fn set_decrypt(&mut self, encrypted: bool) -> Result<(), Error> {
-        let mut set_key = |key: &str| -> Result<(), Error> {
-            let json_key = self.data.get_mut(key).ok_or(Error::SystemJsonKeyNotFound {
-                key: key.to_string(),
-            })?;
-
-            Ok(*json_key = Value::Bool(encrypted))
-        };
-
-        set_key(HAS_ENC_AUIDO_KEY)?;
-        set_key(HAS_ENC_IMG_KEY)?;
-        self.encrypted = encrypted;
-
-        Ok(())
-    }
-
-    fn write(&mut self) -> Result<(), Error> {
-        self.set_decrypt(self.encrypted)?;
-
-        let data = self.data.to_string();
-        Ok(fs::write(&self.path, data)?)
-    }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    SystemJsonNotFound,
-    IoError(std::io::Error),
-    SystemJsonInvalid(serde_json::Error),
-    SystemJsonKeyNotFound { key: String },
-    SystemJsonInvalidKey { key: String },
-    StrixPrefixFailed(StripPrefixError),
-    KeyParseError(ParseIntError),
-    OutputDirExists(PathBuf),
-}
-
-impl From<ParseIntError> for Error {
-    fn from(value: ParseIntError) -> Self {
-        Self::KeyParseError(value)
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Error::IoError(value)
-    }
-}
-
-impl From<StripPrefixError> for Error {
-    fn from(value: StripPrefixError) -> Self {
-        Self::StrixPrefixFailed(value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RpgFileType {
-    RpgAudio,
-    RpgVideo,
-    RpgImage,
-}
-
-impl RpgFileType {
-    pub fn scan(path: &Path) -> Option<Self> {
-        let ext = path.extension()?.to_str()?;
-        let ext = match ext {
-            "rpgmvo" => RpgFileType::RpgAudio,
-            "ogg_" => RpgFileType::RpgAudio,
-            "rpgmvm" => RpgFileType::RpgVideo,
-            "m4a_" => RpgFileType::RpgVideo,
-            "rpgmvp" => RpgFileType::RpgImage,
-            "png_" => RpgFileType::RpgImage,
-            _ => return None,
-        };
-        Some(ext)
-    }
-
-    pub fn to_extension(&self) -> String {
-        match self {
-            RpgFileType::RpgAudio => "ogg",
-            RpgFileType::RpgVideo => "m4a",
-            RpgFileType::RpgImage => "png",
-        }
-        .to_string()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RpgFile {
-    data: Vec<u8>,
-    file_type: RpgFileType,
-    new_path: PathBuf,
-    orig_path: PathBuf,
-}
-
-impl RpgFile {
-    pub fn from_path(path: &Path) -> Option<Self> {
-        let file_type = RpgFileType::scan(&path)?;
-
-        let data = match fs::read(&path) {
-            Ok(v) => v,
-            Err(_) => return None,
-        };
-
-        let ext = file_type.to_extension();
-
-        // checked before
-        let mut new_path = path.to_path_buf();
-        let _ = new_path.set_extension(ext);
-
-        Some(Self {
-            data,
-            file_type,
-            new_path,
-            orig_path: path.to_path_buf(),
-        })
-    }
-
-    #[allow(unused)]
-    pub fn from_parts(data: Vec<u8>, file_type: RpgFileType, orig_path: PathBuf) -> Self {
-        let mut new_path = orig_path.clone();
-        new_path.set_extension(file_type.to_extension());
-
-        Self {
-            data,
-            file_type,
-            orig_path,
-            new_path,
-        }
-    }
-
-    pub fn decrypt(&self, key: &[u8]) -> Vec<u8> {
-        fn xor(data: &[u8], key: &[u8]) -> Vec<u8> {
-            let mut result = Vec::with_capacity(data.len());
-
-            for i in 0..data.len() {
-                result.push(data[i] ^ key[i % key.len()]);
-            }
-
-            result
-        }
-
-        let file = &self.data[16..];
-        let cyphertext = &file[..16];
-        let mut plaintext = xor(cyphertext, key);
-        let mut file = file[16..].to_vec();
-        plaintext.append(&mut file);
-        return plaintext;
-    }
-}
-
+/// Configures how to process and store the decrypted files.
+///
+/// You can use this struct as a clap Subcommand by enabling
+/// the `clap` feature.
 #[cfg_attr(feature = "clap", derive(clap::Subcommand))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OutputSettings {
@@ -196,13 +54,25 @@ pub enum OutputSettings {
     Flatten { dir: PathBuf },
 }
 
+/// Represents the games encryption key as a raw string
+/// (as stored in System.json) and as bytes that can
+/// be used to decrypt a game.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RpgKey<'a> {
     pub string: &'a str,
     pub bytes: &'a [u8],
 }
 
 impl RpgGame {
-    /// Creates a new RpgGame instance from a given path
+    /// Attempt to create a new RpgGame from a given path.
+    /// setting `verbose` to true will print decryption progress to stdout
+    ///
+    /// ## Example
+    /// ```
+    /// use librpgmaker::prelude::*;
+    ///
+    /// let game = RpgGame::new("path/to/game", false);
+    /// ```
     pub fn new<P: AsRef<Path>>(path: P, verbose: bool) -> Result<Self, Error> {
         let system_json = Self::get_system_json(path.as_ref())?;
         let (key, orig_key) = Self::try_get_key(&system_json.data)?;
@@ -217,7 +87,12 @@ impl RpgGame {
         })
     }
 
-    /// Scans files in the game directory and returns a list of all files that can be decrypted
+    /// Scans files in the game directory and returns a list of all files that can decrypted.
+    ///
+    /// This does not read the file contents, only filename.
+    ///
+    /// The result of this operation is cached and will be used to display the total amount
+    /// of files left when decrypting (if verbose == true)
     pub fn scan_files(&mut self) -> Result<Vec<RpgFileType>, Error> {
         let files: Vec<_> = WalkDir::new(&self.path)
             .into_iter()
@@ -234,7 +109,11 @@ impl RpgGame {
 
     /// Decrypt all files in the game directory.
     ///
-    /// Returns the number of files decrypted or an error
+    /// Returns the number of files decrypted or an error.
+    ///
+    /// When `verbose` is true, the decryption progress will be
+    /// printed to stdout. The total number of files will only
+    /// be displayed if `scan_files()` was run beforehand.
     pub fn decrypt_all(&mut self, output: &OutputSettings) -> Result<u64, Error> {
         let files = WalkDir::new(&self.path)
             .into_iter()
@@ -304,6 +183,7 @@ impl RpgGame {
         Ok(num_decrypted)
     }
 
+    /// Returns the game's decryption key
     pub fn get_key(&self) -> RpgKey {
         RpgKey {
             string: &self.orig_key,
@@ -311,6 +191,7 @@ impl RpgGame {
         }
     }
 
+    /// Indicates if the game reports to be decrypted or not.
     pub fn is_encrypted(&self) -> bool {
         self.system_json.encrypted
     }
@@ -323,7 +204,7 @@ impl RpgGame {
                 .collect()
         }
 
-        match system_json.get(KEY_KEY) {
+        match system_json.get(ENCKEY_KEY) {
             Some(key) => match key.as_str() {
                 Some(key) => Ok((decode_hex(key)?, key.to_owned())),
                 None => Err(Error::SystemJsonInvalidKey {
@@ -331,7 +212,7 @@ impl RpgGame {
                 }),
             },
             None => Err(Error::SystemJsonKeyNotFound {
-                key: KEY_KEY.to_string(),
+                key: ENCKEY_KEY.to_string(),
             }),
         }
     }
@@ -357,7 +238,7 @@ impl RpgGame {
                 data: v,
                 path: system_path.to_owned(),
             }),
-            Err(e) => Err(Error::SystemJsonInvalid(e)),
+            Err(e) => Err(Error::SystemJsonInvalidJson(e)),
         }
     }
 }

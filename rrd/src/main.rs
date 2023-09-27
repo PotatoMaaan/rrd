@@ -3,7 +3,7 @@ use std::{fmt::Display, path::Path, process::exit, time::Instant};
 use clap::Parser;
 use cli::*;
 use itertools::Itertools;
-use librpgmaker::*;
+use librpgmaker::prelude::*;
 
 mod cli;
 
