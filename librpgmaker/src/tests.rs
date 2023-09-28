@@ -101,10 +101,9 @@ fn test_create_path_from_output_flatten_1() {
     };
     let gamepath1 = Path::new("test_files/game");
 
-    let (new_path, should_update) = create_path_from_output(&out1, &file1, gamepath1).unwrap();
+    let new_path = create_path_from_output(&out1, &file1, gamepath1).unwrap();
 
     assert_eq!(new_path, PathBuf::from("output_dir/www_img_test.png"));
-    assert_eq!(should_update, false);
 }
 
 #[test]
@@ -121,10 +120,9 @@ fn test_create_path_from_output_flatten_2() {
     };
     let gamepath1 = Path::new("../../game");
 
-    let (new_path, should_update) = create_path_from_output(&out1, &file1, gamepath1).unwrap();
+    let new_path = create_path_from_output(&out1, &file1, gamepath1).unwrap();
 
     assert_eq!(new_path, PathBuf::from("output_dir/www_img_test.ogg"));
-    assert_eq!(should_update, false);
 }
 
 #[test]
@@ -141,10 +139,9 @@ fn test_create_path_from_output_replace_1() {
 
     let gamepath1 = tmp_dir.path().join("files/game");
 
-    let (new_path, should_update) = create_path_from_output(&out1, &file1, &gamepath1).unwrap();
+    let new_path = create_path_from_output(&out1, &file1, &gamepath1).unwrap();
 
     assert_eq!(new_path, tmp_dir.path().join("files/game/www/img/test.ogg"));
-    assert_eq!(should_update, true);
 }
 
 /*

@@ -2,12 +2,14 @@
 //! To get started, see the `RpgGame` struct.
 
 use error::Error;
+use rayon::prelude::{ParallelBridge, ParallelIterator};
 use rpg_file::{RpgFile, RpgFileType};
 use serde_json::Value;
 use std::{
     fs,
     num::ParseIntError,
     path::{Path, PathBuf},
+    sync::{atomic::AtomicI64, Arc},
 };
 use system_json::SystemJson;
 use walkdir::WalkDir;
@@ -114,40 +116,47 @@ impl RpgGame {
     /// When `verbose` is true, the decryption progress will be
     /// printed to stdout. The total number of files will only
     /// be displayed if `scan_files()` was run beforehand.
-    pub fn decrypt_all(&mut self, output: &OutputSettings) -> Result<u64, Error> {
+    pub fn decrypt_all(
+        &mut self,
+        output: &OutputSettings,
+    ) -> Result<Vec<Result<i64, Error>>, Error> {
         let files = WalkDir::new(&self.path)
             .into_iter()
             .filter_map(|path| path.ok())
             .filter_map(|entry| RpgFile::from_path(&entry.path()));
 
-        let mut num_decrypted = 0;
+        let num_decrypted = Arc::new(AtomicI64::new(0));
 
-        for file in files {
-            let decrypted = file.decrypt(&self.key);
+        let results = files
+            .par_bridge()
+            .map(|file| -> Result<i64, Error> {
+                use std::sync::atomic::Ordering as Ord;
 
-            let (new_path, shold_update_system_json) =
-                create_path_from_output(output, &file, &self.path)?;
+                let decrypted = file.decrypt(&self.key);
+                let new_path = create_path_from_output(&output, &file, &self.path)?;
 
-            if shold_update_system_json {
-                self.system_json.encrypted = false;
-            }
+                num_decrypted.fetch_add(1, Ord::SeqCst);
+                print_progress(
+                    self.num_files,
+                    num_decrypted.load(Ord::SeqCst) as u64,
+                    self.verbose,
+                    &file,
+                    &new_path,
+                );
 
-            num_decrypted += 1;
-            print_progress(
-                self.num_files,
-                num_decrypted,
-                self.verbose,
-                &file,
-                &new_path,
-            );
+                fs::write(&new_path, decrypted)?;
 
-            fs::write(&new_path, decrypted)?;
-        }
+                Ok(num_decrypted.load(Ord::SeqCst))
+            })
+            .collect::<Vec<_>>();
 
         // in case the files were decrypted in place, we need to update system.json
+        if output == &OutputSettings::Replace {
+            self.system_json.encrypted = false;
+        }
         self.system_json.write()?;
 
-        Ok(num_decrypted)
+        Ok(results)
     }
 
     /// Returns the game's decryption key
@@ -237,13 +246,12 @@ fn create_path_from_output(
     output: &OutputSettings,
     file: &RpgFile,
     game_path: &Path,
-) -> Result<(PathBuf, bool), Error> {
+) -> Result<PathBuf, Error> {
     let mut should_update_system_json = false;
     let new_path = match output {
         OutputSettings::NextTo => file.new_path.clone(),
 
         OutputSettings::Replace => {
-            should_update_system_json = true;
             fs::remove_file(&file.orig_path)?;
             file.new_path.clone()
         }
@@ -274,7 +282,7 @@ fn create_path_from_output(
         }
     };
 
-    Ok((new_path.to_owned(), should_update_system_json))
+    Ok(new_path.to_owned())
 }
 
 fn print_progress(

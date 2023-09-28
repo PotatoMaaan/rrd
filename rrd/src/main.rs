@@ -23,7 +23,7 @@ fn main() {
             println!("Starting decryption...");
 
             let dec_start = Instant::now();
-            let num_dec = match game.decrypt_all(&output.unwrap_or(OutputSettings::NextTo)) {
+            let results = match game.decrypt_all(&output.unwrap_or(OutputSettings::NextTo)) {
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!("\nFailed to decrypt the game: {:?}", e);
@@ -32,6 +32,7 @@ fn main() {
             };
             let taken = dec_start.elapsed();
 
+            let num_dec = results.iter().filter_map(|r| r.as_ref().ok()).count();
             if num_dec > 0 {
                 println!("Decrypted {} files in {:.2?}", num_dec, taken);
             } else {
