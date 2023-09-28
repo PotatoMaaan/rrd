@@ -16,3 +16,4 @@ clap = ["dep:clap"]
 
 [dev-dependencies]
 sha2 = "0.10.8"
+tempdir = "0.3.7"

@@ -117,67 +117,34 @@ impl RpgGame {
     pub fn decrypt_all(&mut self, output: &OutputSettings) -> Result<u64, Error> {
         let files = WalkDir::new(&self.path)
             .into_iter()
-            .filter_map(|path| match path {
-                Ok(v) => Some(v),
-                Err(_) => None,
-            })
+            .filter_map(|path| path.ok())
             .filter_map(|entry| RpgFile::from_path(&entry.path()));
 
         let mut num_decrypted = 0;
 
         for file in files {
-            num_decrypted += 1;
-
-            match (self.num_files, self.verbose) {
-                (Some(num_files), true) => {
-                    println!(
-                        "[{}/{}] {}",
-                        num_decrypted,
-                        num_files,
-                        file.orig_path.display()
-                    )
-                }
-                (None, true) => println!("[{}] {}", num_decrypted, file.orig_path.display()),
-                _ => {}
-            }
-
             let decrypted = file.decrypt(&self.key);
 
-            let new_path = match output {
-                OutputSettings::NextTo => file.new_path,
+            let (new_path, shold_update_system_json) =
+                create_path_from_output(output, &file, &self.path)?;
 
-                OutputSettings::Replace => {
-                    self.system_json.encrypted = false;
-                    dbg!(&file.orig_path);
-                    fs::remove_file(file.orig_path)?;
-                    file.new_path
-                }
+            if shold_update_system_json {
+                self.system_json.encrypted = false;
+            }
 
-                OutputSettings::Output { dir } => {
-                    let new_path = dir.join(file.new_path.strip_prefix(&self.path)?);
-                    fs::create_dir_all(&new_path.parent().expect("No parent"))?;
-                    new_path
-                }
-
-                OutputSettings::Flatten { dir } => {
-                    fs::create_dir_all(&dir)?;
-
-                    let path_str = file
-                        .new_path
-                        .strip_prefix(&self.path)
-                        .expect("no parent")
-                        .to_string_lossy()
-                        .replace(std::path::MAIN_SEPARATOR, "_");
-
-                    let mut new_dir = dir.join(PathBuf::from(path_str));
-                    new_dir.set_extension(file.file_type.to_extension());
-                    new_dir
-                }
-            };
+            num_decrypted += 1;
+            print_progress(
+                self.num_files,
+                num_decrypted,
+                self.verbose,
+                &file,
+                &new_path,
+            );
 
             fs::write(&new_path, decrypted)?;
         }
 
+        // in case the files were decrypted in place, we need to update system.json
         self.system_json.write()?;
 
         Ok(num_decrypted)
@@ -224,11 +191,9 @@ impl RpgGame {
             .filter(|path| path.exists())
             .collect();
 
-        let system_path = match system_paths.is_empty() {
-            true => return Err(Error::SystemJsonNotFound),
-            false => system_paths
-                .first()
-                .expect("no first path even though checked"),
+        let system_path = match system_paths.get(0) {
+            Some(path) => path,
+            None => return Err(Error::SystemJsonNotFound),
         };
 
         let system = fs::read_to_string(system_path)?;
@@ -266,4 +231,75 @@ fn check_encrypted(value: &Value) -> Result<bool, Error> {
     let img = get_key(HAS_ENC_IMG_KEY)?;
 
     Ok(audio || img)
+}
+
+fn create_path_from_output(
+    output: &OutputSettings,
+    file: &RpgFile,
+    game_path: &Path,
+) -> Result<(PathBuf, bool), Error> {
+    let mut should_update_system_json = false;
+    let new_path = match output {
+        OutputSettings::NextTo => file.new_path.clone(),
+
+        OutputSettings::Replace => {
+            should_update_system_json = true;
+            fs::remove_file(&file.orig_path)?;
+            file.new_path.clone()
+        }
+
+        OutputSettings::Output { dir } => {
+            let new_path = dir.join(file.new_path.strip_prefix(game_path)?);
+            fs::create_dir_all(&new_path.parent().expect("No parent"))?;
+            new_path
+        }
+
+        OutputSettings::Flatten { dir } => {
+            fs::create_dir_all(&dir)?;
+
+            // FIXME: if there are 2 files with a name that is only different due to non urf-8
+            // characters, this will overwrite the file that came first with later ones
+            // because to_string_lossy() discards any non utf-8 chars.
+            //
+            // Neither OsStr or OsString have a replace() method. the bstr crate would help here,
+            // but adding a whole new create just for this does not seem worth it.
+            let path_str = file
+                .new_path // test_files/game/www/img/test.png
+                .strip_prefix(game_path) // www/img/test.png
+                .expect("no parent")
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "_"); // www_img_test.png
+
+            dir.join(PathBuf::from(path_str)) // output_dir/www_img_test.png
+        }
+    };
+
+    Ok((new_path.to_owned(), should_update_system_json))
+}
+
+fn print_progress(
+    num_files: Option<usize>,
+    num_decrypted: u64,
+    verbose: bool,
+    file: &RpgFile,
+    new_path: &Path,
+) {
+    match (num_files, verbose) {
+        (Some(num_files), true) => {
+            println!(
+                "[{}/{}] {}\n  -> {}",
+                num_decrypted,
+                num_files,
+                file.orig_path.display(),
+                new_path.display()
+            )
+        }
+        (None, true) => println!(
+            "[{}] {}\n  -> {}",
+            num_decrypted,
+            file.orig_path.display(),
+            new_path.display()
+        ),
+        _ => {}
+    }
 }
