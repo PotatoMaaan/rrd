@@ -18,7 +18,8 @@ impl SystemJson {
                 key: key.to_string(),
             })?;
 
-            Ok(*json_key = Value::Bool(encrypted))
+            *json_key = Value::Bool(encrypted);
+            Ok(())
         };
 
         set_key(HAS_ENC_AUIDO_KEY)?;

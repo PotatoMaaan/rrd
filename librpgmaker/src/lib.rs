@@ -102,7 +102,7 @@ impl RpgGame {
                 Ok(v) => Some(v),
                 Err(_) => None,
             })
-            .filter_map(|entry| RpgFileType::scan(&entry.path()))
+            .filter_map(|entry| RpgFileType::scan(entry.path()))
             .collect();
 
         self.num_files = Some(files.len());
@@ -123,7 +123,7 @@ impl RpgGame {
         let files = WalkDir::new(&self.path)
             .into_iter()
             .filter_map(|path| path.ok())
-            .filter_map(|entry| RpgFile::from_path(&entry.path()));
+            .filter_map(|entry| RpgFile::from_path(entry.path()));
 
         let num_decrypted = Arc::new(AtomicI64::new(0));
 
@@ -133,7 +133,7 @@ impl RpgGame {
                 use std::sync::atomic::Ordering as Ord;
 
                 let decrypted = file.decrypt(&self.key);
-                let new_path = create_path_from_output(&output, &file, &self.path)?;
+                let new_path = create_path_from_output(output, &file, &self.path)?;
 
                 num_decrypted.fetch_add(1, Ord::SeqCst);
                 print_progress(
@@ -168,6 +168,7 @@ impl RpgGame {
     }
 
     /// Indicates if the game reports to be decrypted or not.
+    #[inline]
     pub fn is_encrypted(&self) -> bool {
         self.system_json.encrypted
     }
@@ -222,17 +223,13 @@ fn check_encrypted(value: &Value) -> Result<bool, Error> {
         match value.get(key) {
             Some(val) => match val.as_bool() {
                 Some(v) => Ok(v),
-                None => {
-                    return Err(Error::SystemJsonInvalidKey {
-                        key: val.to_string(),
-                    })
-                }
+                None => Err(Error::SystemJsonInvalidKey {
+                    key: val.to_string(),
+                }),
             },
-            None => {
-                return Err(Error::SystemJsonKeyNotFound {
-                    key: key.to_string(),
-                })
-            }
+            None => Err(Error::SystemJsonKeyNotFound {
+                key: key.to_string(),
+            }),
         }
     };
 
@@ -247,7 +244,6 @@ fn create_path_from_output(
     file: &RpgFile,
     game_path: &Path,
 ) -> Result<PathBuf, Error> {
-    let mut should_update_system_json = false;
     let new_path = match output {
         OutputSettings::NextTo => file.new_path.clone(),
 
@@ -258,12 +254,12 @@ fn create_path_from_output(
 
         OutputSettings::Output { dir } => {
             let new_path = dir.join(file.new_path.strip_prefix(game_path)?);
-            fs::create_dir_all(&new_path.parent().expect("No parent"))?;
+            fs::create_dir_all(new_path.parent().expect("No parent"))?;
             new_path
         }
 
         OutputSettings::Flatten { dir } => {
-            fs::create_dir_all(&dir)?;
+            fs::create_dir_all(dir)?;
 
             // FIXME: if there are 2 files with a name that is only different due to non urf-8
             // characters, this will overwrite the file that came first with later ones

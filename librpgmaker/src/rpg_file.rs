@@ -76,9 +76,9 @@ impl RpgFileType {
 
 impl RpgFile {
     pub fn from_path(path: &Path) -> Option<Self> {
-        let file_type = RpgFileType::scan(&path)?;
+        let file_type = RpgFileType::scan(path)?;
 
-        let data = match fs::read(&path) {
+        let data = match fs::read(path) {
             Ok(v) => v,
             Err(_) => return None,
         };
@@ -126,6 +126,6 @@ impl RpgFile {
         let mut plaintext = xor(cyphertext, key);
         let mut file = file[16..].to_vec();
         plaintext.append(&mut file);
-        return plaintext;
+        plaintext
     }
 }
