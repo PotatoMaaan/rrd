@@ -266,7 +266,7 @@ fn create_path_from_output(
             // because to_string_lossy() discards any non utf-8 chars.
             //
             // Neither OsStr or OsString have a replace() method. the bstr crate would help here,
-            // but adding a whole new create just for this does not seem worth it.
+            // but adding a whole new crate just for this does not seem worth it.
             let path_str = file
                 .new_path // test_files/game/www/img/test.png
                 .strip_prefix(game_path) // www/img/test.png
