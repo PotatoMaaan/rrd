@@ -11,7 +11,7 @@ fn main() {
     let args = Cli::parse();
 
     let mut game = RpgGame::new(args.game_dir, !args.quiet).unwrap_or_else(|e| {
-        eprintln!("Failed to open game dir: {:?}", e);
+        eprintln!("Failed to open game dir: {}", e);
         exit(1);
     });
 
@@ -24,7 +24,7 @@ fn main() {
     let scanned = match game.scan_files() {
         Ok(files) => files,
         Err(e) => {
-            eprintln!("Failed to scan the game: {:?}", e);
+            eprintln!("Failed to scan the game: {}", e);
             exit(1);
         }
     };
@@ -39,7 +39,7 @@ fn main() {
     let results = match game.decrypt_all(&args.output.unwrap_or(OutputSettings::NextTo)) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Failed to decryptt the game: {:?}", e);
+            eprintln!("Failed to decryptt the game: {}", e);
             exit(1);
         }
     };
@@ -52,20 +52,21 @@ fn main() {
 
     println!("\n");
     if !failed.is_empty() {
-        println!(
-            "{} errors were encountered while decrypting:\n",
-            failed.len()
-        );
+        println!("\n");
 
         for error in &failed {
-            eprintln!("{:?}", error);
+            eprintln!("ERROR: {}", error);
         }
+        print!(
+            "\n{} errors were encountered while decrypting",
+            failed.len()
+        );
     } else {
         println!("Game decrypted sucessfully!")
     }
 
     println!(
-        "Decrypted {}/{} files in {:.2?}",
+        "\n\nDecrypted {}/{} files in {:.2?}",
         results_len - failed.len(),
         scanned.len(),
         start_time.elapsed()

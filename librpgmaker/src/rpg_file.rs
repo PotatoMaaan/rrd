@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::error::Error;
+
 /// Represents a decryptable file in an RpgMaker game.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RpgFileType {
@@ -120,12 +122,17 @@ impl RpgFile {
     /// File after decryption:
     ///
     /// | *header (16 bytes)* | *rest of the data* |
-    pub fn decrypt(&mut self, key: &[u8]) {
+    pub fn decrypt(&mut self, key: &[u8]) -> Result<(), Error> {
+        if self.data.len() <= 16 {
+            return Err(Error::FileToShort(self.orig_path.clone()));
+        }
+
         self.data.drain(0..16); // strip off rpgmaker header
         let (header, _) = self.data.split_at_mut(16); // get a reference to header
         header
             .iter_mut()
             .enumerate()
             .for_each(|(i, d)| *d ^= key[i % key.len()]); // XOR the header with the key
+        Ok(())
     }
 }

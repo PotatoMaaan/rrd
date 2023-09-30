@@ -132,7 +132,7 @@ impl RpgGame {
             .map(|mut file| -> Result<(), Error> {
                 use std::sync::atomic::Ordering as Ord;
 
-                file.decrypt(&self.key);
+                file.decrypt(&self.key)?;
                 let new_path = create_path_from_output(output, &file, &self.path)?;
 
                 num_decrypted.fetch_add(1, Ord::SeqCst);
