@@ -190,9 +190,7 @@ impl RpgGame {
                     key: key.to_string(),
                 }),
             },
-            None => Err(Error::SystemJsonKeyNotFound {
-                key: ENCKEY_KEY.to_string(),
-            }),
+            None => Err(Error::NotEncrypted),
         }
     }
 

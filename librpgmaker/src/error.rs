@@ -34,6 +34,9 @@ pub enum Error {
 
     /// The given output dir already exists.
     OutputDirExists(PathBuf),
+
+    /// The game is not encrypted.
+    NotEncrypted,
 }
 
 impl From<ParseIntError> for Error {
