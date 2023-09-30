@@ -2,80 +2,52 @@
 
 rust-rpgmv-decrypt (rrd) is a small program that decrypts games made with rpgmaker-mv, written in Rust.
 
-The aim is to be small, simple, fast and reliable.
-
-Since the recent implimentation of async file decryption, this might just be the fastest rpgmv decrypter out there :) (please open pr with correction if you find anything faster!)
-
-Here is a comparision (file cache in ram was cleared before each run)
-
-- Old implimentation took 36 seconds
-- Async implementation took 14 seconds
+The repo consists of the crate `rrd`, which is the actual binary program, while the `librpgmaker` crate provides a library to interact with rpgmaker games, which `rrd` uses.
 
 ### Credits
 
-- A lot of the algorythim comes from [here](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/)
+- Based on [the minimal example](https://bitbucket.org/SilicaAndPina/rpgmv-decryptor/src/master/) by [SilicaAndPina on bitbucket.org](https://bitbucket.org/SilicaAndPina/)
 
-### Notes for Windows users
+## Basic usage
 
-- Windows defender may detect the file as malicious in some way. (When testing it, i got "Windows protected your PC") If you don't trust the files because of this, you can easily build the program yourself (see the building section)
-- On windows, it's theoretically enough to drag the game folder onto the downloaded program, however, this won't give you any access to options and means that you always need to keep the file around somewhere where you can find it. Because of that, I recommend you do the following:
+1. First, download an existing binary or [build one yourself](#Building)
+   (see the building section).
+2. Drag and drop the folder you want to decrypt onto the executable or run the executable from a terminal.
 
-## Installation
+## Advanced usage
 
-1. First, download an existing binary or compile the program yourself. (see the building section)
-2. Rename the file to whatever you want
-3. Place the file into a directory which is in your PATH. (for example `C:\Windows` on Windows or `/usr/local/bin` on most UNIX-like Systems.)
-4. Open a terminal and type the name you gave your file in step 2.
+```
+Decrypt files encrypted by RPMVs default encryprion
 
-## Example installation and use (Windows)
+Usage: rrd [OPTIONS] <GAME_DIR> [COMMAND]
 
-1. Do the steps from the installation section, your file (in this case named rrd.exe) should now be in `C:\Windows`.
-2. In explorer, navigate to he folder where your game is, in this example, it is a folder named `game` inside the `Documents` folder. We don't actually want to go into the `game` folder, but rather the folder that contains the game, in this case, `Documents`.
-3. Click into the url bar in Explorer and type `cmd`
+Commands:
+  next-to  Decrypts the game's files next to the encrypted files
+  replace  Overwrites the games files with the decrypted ones
+  output   Leaves the game untouched, places files into given directory while maintining original dir structure
+  flatten  Same as output but flattens the dir structure
+  help     Print this message or the help of the given subcommand(s)
 
-![drt](/tutorial-images/example-url.png)
-![dgdf](/tutorial-images/example-launch-cmd.png)
+Arguments:
+  <GAME_DIR>  The game directory
 
-4. This will open a command prompt window. Now type the name you just gave your file, in this case `rrd`. you should see the following output:
+Options:
+  -q, --quiet    Don't print individual files during decryption
+  -s, --scan     Just scan the amount of decryptable files
+  -k, --key      Just print the key
+  -h, --help     Print help
+  -V, --version  Print version
 
-![dgdf](/tutorial-images/example-command-1.png)
-
-5. This is telling us to provide a directory (folder). Since we want to decrypt the `game` folder, we type `rrd game`. In the example command below, the `-o` option is also set to `decrypted` which will create a folder `decryped` and put all the decrypted files in there. (this is entirely optional)
-
-![dgdf](/tutorial-images/example-command-2.png)
-
-6. Press ENTER and wait for the decryption to finish. Once finished, you should see something similar to the following output:
-
-![dgdf](/tutorial-images/example-finished.png)
+```
 
 ## Building
 
-Building rust programs (such as this) is very simple. You only need to install [the rust toolchain](https://rustup.rs/) for your system and execute the following commands:
+To build `rrd` you just need the [the rust toolchain](https://rustup.rs/) and git.
 
 ```sh
 git clone https://github.com/PotatoMaaan/rrd.git
 cd rrd
-cargo build --release #builds an optimized release bianry in target/release
-```
-
-## Usage
-
-```
-Usage: rust-rpgmv-decrypt [OPTIONS] <DIRECTORY>
-
-Arguments:
-  <DIRECTORY>  The game directory containing the main executable file
-
-Options:
-  -k, --keep-original    Keep the original (encrypted) file next to the decrypted files
-  -o, --output <OUTPUT>  The directory where decrypted files are output to relative to the current directory. This automatically keeps the encrypted files in place. If not specified, the files will be alongside the encrypted ones
-  -s, --scan             Just scan the directory for decryptable files, list them and then exit
-  -q, --quiet            Don't print individual files being decrypted
-      --key              Print the key (if present) and exit
-  -f, --flatten-paths    Flatten directory structure of the output into a single directory containg all the files (only effective when --output is specified)
-      --force            Continue even if the output directory already exists
-  -h, --help             Print help
-  -V, --version          Print version
+cargo build --release #builds an optimized release binary in target/release
 ```
 
 ### Note

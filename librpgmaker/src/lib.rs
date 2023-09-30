@@ -43,7 +43,7 @@ pub struct RpgGame {
 #[cfg_attr(feature = "clap", derive(clap::Subcommand))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OutputSettings {
-    /// Decrypts the game's files in next to the encrypted files (default)
+    /// Decrypts the game's files next to the encrypted files
     NextTo,
 
     /// Overwrites the games files with the decrypted ones.
@@ -66,7 +66,7 @@ pub struct RpgKey<'a> {
 }
 
 impl RpgGame {
-    /// Attempt to create a new RpgGame from a given path.
+    /// Attempt to create a new `RpgGame` from a given path.
     /// setting `verbose` to true will print decryption progress to stdout
     ///
     /// ## Example
@@ -119,20 +119,20 @@ impl RpgGame {
     pub fn decrypt_all(
         &mut self,
         output: &OutputSettings,
-    ) -> Result<Vec<Result<i64, Error>>, Error> {
+    ) -> Result<Vec<Result<(), Error>>, Error> {
         let files = WalkDir::new(&self.path)
             .into_iter()
-            .filter_map(|path| path.ok())
+            .filter_map(Result::ok)
             .filter_map(|entry| RpgFile::from_path(entry.path()));
 
         let num_decrypted = Arc::new(AtomicI64::new(0));
 
         let results = files
             .par_bridge()
-            .map(|file| -> Result<i64, Error> {
+            .map(|mut file| -> Result<(), Error> {
                 use std::sync::atomic::Ordering as Ord;
 
-                let decrypted = file.decrypt(&self.key);
+                file.decrypt(&self.key);
                 let new_path = create_path_from_output(output, &file, &self.path)?;
 
                 num_decrypted.fetch_add(1, Ord::SeqCst);
@@ -144,9 +144,9 @@ impl RpgGame {
                     &new_path,
                 );
 
-                fs::write(&new_path, decrypted)?;
+                fs::write(&new_path, file.data)?;
 
-                Ok(num_decrypted.load(Ord::SeqCst))
+                Ok(())
             })
             .collect::<Vec<_>>();
 
@@ -160,6 +160,7 @@ impl RpgGame {
     }
 
     /// Returns the game's decryption key
+    #[must_use]
     pub fn get_key(&self) -> RpgKey {
         RpgKey {
             string: &self.orig_key,
@@ -169,6 +170,7 @@ impl RpgGame {
 
     /// Indicates if the game reports to be decrypted or not.
     #[inline]
+    #[must_use]
     pub fn is_encrypted(&self) -> bool {
         self.system_json.encrypted
     }
@@ -201,9 +203,8 @@ impl RpgGame {
             .filter(|path| path.exists())
             .collect();
 
-        let system_path = match system_paths.get(0) {
-            Some(path) => path,
-            None => return Err(Error::SystemJsonNotFound),
+        let Some(system_path) = system_paths.get(0) else {
+            return Err(Error::SystemJsonNotFound);
         };
 
         let system = fs::read_to_string(system_path)?;
@@ -211,7 +212,7 @@ impl RpgGame {
             Ok(v) => Ok(SystemJson {
                 encrypted: check_encrypted(&v)?,
                 data: v,
-                path: system_path.to_owned(),
+                path: system_path.clone(),
             }),
             Err(e) => Err(Error::SystemJsonInvalidJson(e)),
         }
@@ -278,7 +279,7 @@ fn create_path_from_output(
         }
     };
 
-    Ok(new_path.to_owned())
+    Ok(new_path.clone())
 }
 
 fn print_progress(
@@ -296,7 +297,7 @@ fn print_progress(
                 num_files,
                 file.orig_path.display(),
                 new_path.display()
-            )
+            );
         }
         (None, true) => println!(
             "[{}] {}\n  -> {}",

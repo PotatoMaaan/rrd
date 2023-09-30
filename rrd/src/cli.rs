@@ -1,32 +1,26 @@
-use clap::{command, Parser, Subcommand};
+use clap::{command, Parser};
 use librpgmaker::OutputSettings;
 use std::path::PathBuf;
 
-/// Decrypt files encryped by RPMVs default encryprion{n}{n}
+/// Decrypt files encryped by RPMVs default encryprion
 #[derive(Parser)]
 #[command(version)]
 pub struct Cli {
-    #[command(subcommand)]
-    pub command: Commands,
+    /// The game directory
+    pub game_dir: PathBuf,
 
+    #[command(subcommand)]
+    pub output: Option<OutputSettings>,
+
+    /// Don't print individual files during decryption
     #[arg(short, long)]
     pub quiet: bool,
-}
 
-#[derive(Subcommand)]
-pub enum Commands {
-    Decrypt {
-        game_dir: PathBuf,
+    /// Just scan the amount of decryptable files
+    #[arg(short, long)]
+    pub scan: bool,
 
-        #[command(subcommand)]
-        output: Option<OutputSettings>,
-    },
-    Scan {
-        game_dir: PathBuf,
-    },
-
-    /// Just prints the key
-    Key {
-        game_dir: PathBuf,
-    },
+    /// Just print the key
+    #[arg(short, long)]
+    pub key: bool,
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rrd"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,3 +9,7 @@ edition = "2021"
 clap = { version = "4.4.5", features = ["derive"] }
 itertools = "0.11.0"
 librpgmaker = { path = "../librpgmaker", features = ["clap"] }
+
+[profile.release]
+lto = true
+strip = true

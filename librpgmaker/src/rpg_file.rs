@@ -7,13 +7,13 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RpgFileType {
     /// eg. song1.rpgmvo
-    RpgAudio,
+    Audio,
 
     /// eg. video1.rpgmvm
-    RpgVideo,
+    Video,
 
     /// eg. actor1.rpgmvp
-    RpgImage,
+    Image,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -25,7 +25,7 @@ pub struct RpgFile {
 }
 
 impl RpgFileType {
-    /// Checks if a given path is an RpgFile (based on extension)
+    /// Checks if a given path is an `RpgFile` (based on extension)
     ///
     /// ## Example
     /// ```
@@ -38,15 +38,13 @@ impl RpgFileType {
     ///
     /// assert!(is_rpgfile.is_some());
     /// ```
+    #[must_use]
     pub fn scan(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?;
         let ext = match ext {
-            "rpgmvo" => RpgFileType::RpgAudio,
-            "ogg_" => RpgFileType::RpgAudio,
-            "rpgmvm" => RpgFileType::RpgVideo,
-            "m4a_" => RpgFileType::RpgVideo,
-            "rpgmvp" => RpgFileType::RpgImage,
-            "png_" => RpgFileType::RpgImage,
+            "rpgmvo" | "ogg_" => RpgFileType::Audio,
+            "rpgmvm" | "m4a_" => RpgFileType::Video,
+            "rpgmvp" | "png_" => RpgFileType::Image,
             _ => return None,
         };
         Some(ext)
@@ -58,17 +56,18 @@ impl RpgFileType {
     /// ```
     /// use librpgmaker::prelude::*;
     ///
-    /// let file_type = RpgFileType::RpgVideo;
+    /// let file_type = RpgFileType::Video;
     ///
     /// let ext = file_type.to_extension();
     ///
     /// assert_eq!(ext, "m4a");
     /// ```
+    #[must_use]
     pub fn to_extension(&self) -> String {
         match self {
-            RpgFileType::RpgAudio => "ogg",
-            RpgFileType::RpgVideo => "m4a",
-            RpgFileType::RpgImage => "png",
+            RpgFileType::Audio => "ogg",
+            RpgFileType::Video => "m4a",
+            RpgFileType::Image => "png",
         }
         .to_string()
     }
@@ -78,14 +77,12 @@ impl RpgFile {
     pub fn from_path(path: &Path) -> Option<Self> {
         let file_type = RpgFileType::scan(path)?;
 
-        let data = match fs::read(path) {
-            Ok(v) => v,
-            Err(_) => return None,
+        let Ok(data) = fs::read(path) else {
+            return None;
         };
 
         let ext = file_type.to_extension();
 
-        // checked before
         let mut new_path = path.to_path_buf();
         let _ = new_path.set_extension(ext);
 
@@ -105,27 +102,30 @@ impl RpgFile {
         Self {
             data,
             file_type,
-            orig_path,
             new_path,
+            orig_path,
         }
     }
 
-    pub fn decrypt(&self, key: &[u8]) -> Vec<u8> {
-        fn xor(data: &[u8], key: &[u8]) -> Vec<u8> {
-            let mut result = Vec::with_capacity(data.len());
-
-            for i in 0..data.len() {
-                result.push(data[i] ^ key[i % key.len()]);
-            }
-
-            result
-        }
-
-        let file = &self.data[16..];
-        let cyphertext = &file[..16];
-        let mut plaintext = xor(cyphertext, key);
-        let mut file = file[16..].to_vec();
-        plaintext.append(&mut file);
-        plaintext
+    /// Decrypts the data in the file.
+    ///
+    /// File before decryption:
+    ///
+    /// | *RPGmaker header (16 bytes)* | *encrypted header (16 bytes)* | *rest of the data* |
+    ///
+    /// to undo to this, we just need to discard the first 16 bytes,
+    /// xor the encrypted header with the key and stick the data
+    /// underneith the decrypted header.
+    ///
+    /// File after decryption:
+    ///
+    /// | *header (16 bytes)* | *rest of the data* |
+    pub fn decrypt(&mut self, key: &[u8]) {
+        self.data.drain(0..16); // strip off rpgmaker header
+        let (header, _) = self.data.split_at_mut(16); // get a reference to header
+        header
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, d)| *d ^= key[i % key.len()]); // XOR the header with the key
     }
 }
