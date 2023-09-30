@@ -2,3 +2,6 @@
 /test_files
 /.vscode
 /local
+/perf.data*
+*/target*
+*perf.data*
