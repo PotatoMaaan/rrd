@@ -67,7 +67,7 @@ impl Display for Error {
             Error::NotEncrypted => format!("The game is not encrypted"),
             Error::FileToShort(path) => {
                 format!(
-                    "The following file was to short to decrypt:\n   -> {}",
+                    "The following file was too short to decrypt:\n   -> {}",
                     path.display()
                 )
             }
