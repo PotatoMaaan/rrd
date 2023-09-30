@@ -3,7 +3,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use sha2::{Digest, Sha256};
@@ -12,7 +11,7 @@ use tempdir::TempDir;
 use crate::{
     create_path_from_output,
     rpg_file::{RpgFile, RpgFileType},
-    OutputSettings, RpgGame,
+    OutputSettings,
 };
 
 const IMG_ENC: &[u8] = &[
@@ -59,7 +58,7 @@ fn test_decrypt() {
         );
     }
 
-    file.decrypt(KEY);
+    file.decrypt(KEY).unwrap();
     let mut hasher = Sha256::new();
     hasher.update(&file.data);
     let result = hasher.finalize();
@@ -79,7 +78,7 @@ fn test_decryption_fail() {
         );
     }
 
-    file.decrypt(&[1, 2, 3, 4, 5]);
+    file.decrypt(&[1, 2, 3, 4, 5]).unwrap();
     let mut hasher = Sha256::new();
     hasher.update(&file.data);
     let result = hasher.finalize();
@@ -144,34 +143,3 @@ fn test_create_path_from_output_replace_1() {
 
     assert_eq!(new_path, tmp_dir.path().join("files/game/www/img/test.ogg"));
 }
-
-/*
-/// Requires that a test game is present at ../test_files/test_game!
-//#[test]
-fn test_all() {
-    let _ = Command::new("cp")
-        .arg("-r")
-        .arg("../test_files/test_game")
-        .arg("../test_files/test_game_test")
-        .spawn()
-        .expect("failed to run cp -r")
-        .wait();
-
-    let game = RpgGame::new("../test_files/test_game_test", true);
-
-    if let Ok(mut game) = game {
-        let num_dec = game.decrypt_all(&crate::OutputSettings::Replace);
-
-        if let Ok(num_dec) = num_dec {
-            assert!(num_dec > 0);
-        }
-    }
-
-    let _ = Command::new("trash")
-        .arg("-r")
-        .arg("../test_files/test_game_test")
-        .spawn()
-        .expect("failed to run rm -r")
-        .wait();
-}
-*/
