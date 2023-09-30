@@ -124,7 +124,7 @@ impl RpgFile {
     /// | *header (16 bytes)* | *rest of the data* |
     pub fn decrypt(&mut self, key: &[u8]) -> Result<(), Error> {
         if self.data.len() <= 16 {
-            return Err(Error::FileToShort(self.orig_path.clone()));
+            return Err(Error::FileTooShort(self.orig_path.clone()));
         }
 
         self.data.drain(0..16); // strip off rpgmaker header
