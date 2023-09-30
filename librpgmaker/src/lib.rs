@@ -221,14 +221,9 @@ impl RpgGame {
 
 fn check_encrypted(value: &Value) -> Result<bool, Error> {
     let get_key = |key: &str| -> Result<bool, Error> {
-        match value.get(key) {
-            Some(val) => match val.as_bool() {
-                Some(v) => Ok(v),
-                None => Err(Error::SystemJsonInvalidKey {
-                    key: val.to_string(),
-                }),
-            },
-            None => Err(Error::SystemJsonKeyNotFound {
+        match value.get(key).unwrap_or(&Value::Bool(false)).as_bool() {
+            Some(v) => Ok(v),
+            None => Err(Error::SystemJsonInvalidKey {
                 key: key.to_string(),
             }),
         }
