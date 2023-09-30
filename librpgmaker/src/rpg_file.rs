@@ -123,7 +123,7 @@ impl RpgFile {
     ///
     /// | *header (16 bytes)* | *rest of the data* |
     pub fn decrypt(&mut self, key: &[u8]) -> Result<(), Error> {
-        if self.data.len() <= 16 {
+        if self.data.len() <= 32 {
             return Err(Error::FileTooShort(self.orig_path.clone()));
         }
 
