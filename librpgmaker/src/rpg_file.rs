@@ -111,20 +111,33 @@ impl RpgFile {
 
     /// Decrypts the data in the file.
     ///
+    /// # Errors
+    /// If the file is too short to be decrypted, an error is returned.
+    ///
+    /// # Explaining the decryption
     /// File before decryption:
     ///
-    /// | *RPGmaker header (16 bytes)* | *encrypted header (16 bytes)* | *rest of the data* |
+    /// `| RPGmaker header (16 bytes) | encrypted header (16 bytes) | rest of the data |`
     ///
-    /// to undo to this, we just need to discard the first 16 bytes,
-    /// xor the encrypted header with the key and stick the data
-    /// underneith the decrypted header.
+    /// To undo this encryption, we just need to strip off the rpgmaker header (first 16 bytes)
+    /// and then xor the header with the key. We don't even need to touch the actual data,
+    /// since it's not encrypted.
     ///
     /// File after decryption:
     ///
-    /// | *header (16 bytes)* | *rest of the data* |
+    /// `| header (16 bytes) | rest of the data |`
+    ///
+    /// # Performance
+    /// The actual decryption is O(1), but the removing of the first 16 bytes of the data is O(n)
+    /// worst case, where n in the length of the data. This is because the vector needs to be
+    /// shifted back, which can only be done by copying.
+    ///
+    /// Overall this operarion is O(n) + 1 where n is the length of the data and one is the
+    /// actual decryption of the header (fixed size). 99% of the performance impact will be from
+    /// copying the elements back (the call to `drain()`).
     pub fn decrypt(&mut self, key: &[u8]) -> Result<(), Error> {
-        if self.data.len() <= 16 {
-            return Err(Error::FileToShort(self.orig_path.clone()));
+        if self.data.len() <= 32 {
+            return Err(Error::FileTooShort(self.orig_path.clone()));
         }
 
         self.data.drain(0..16); // strip off rpgmaker header

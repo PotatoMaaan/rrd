@@ -3,7 +3,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use sha2::{Digest, Sha256};
@@ -12,7 +11,7 @@ use tempdir::TempDir;
 use crate::{
     create_path_from_output,
     rpg_file::{RpgFile, RpgFileType},
-    OutputSettings, RpgGame,
+    OutputSettings,
 };
 
 const IMG_ENC: &[u8] = &[
@@ -59,13 +58,28 @@ fn test_decrypt() {
         );
     }
 
-    file.decrypt(KEY);
+    file.decrypt(KEY).unwrap();
     let mut hasher = Sha256::new();
     hasher.update(&file.data);
     let result = hasher.finalize();
 
     println!("\ndecrypted len: {}", file.data.len());
     assert_eq!(format!("{:x}", result), IMG_UNENC_HASH);
+}
+
+#[test]
+fn test_decrypt_short() {
+    let mut file;
+    unsafe {
+        file = RpgFile::from_parts(
+            IMG_ENC[0..32].to_vec(),
+            crate::rpg_file::RpgFileType::Image,
+            PathBuf::from("test_images/test.rpgmvp"),
+        );
+    }
+
+    let res = file.decrypt(KEY);
+    assert!(matches!(res, Err(crate::error::Error::FileTooShort(_))));
 }
 
 #[test]
@@ -79,7 +93,7 @@ fn test_decryption_fail() {
         );
     }
 
-    file.decrypt(&[1, 2, 3, 4, 5]);
+    file.decrypt(&[1, 2, 3, 4, 5]).unwrap();
     let mut hasher = Sha256::new();
     hasher.update(&file.data);
     let result = hasher.finalize();

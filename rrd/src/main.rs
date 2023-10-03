@@ -1,4 +1,9 @@
-use std::{fmt::Display, process::exit, time::Instant};
+use std::{
+    fmt::Display,
+    path::PathBuf,
+    process::exit,
+    time::{Duration, Instant},
+};
 
 use clap::Parser;
 use cli::*;
@@ -35,6 +40,7 @@ fn main() {
         exit(0);
     }
 
+    println!("Starting decryption...");
     let start_time = Instant::now();
     let results = match game.decrypt_all(&args.output.unwrap_or(OutputSettings::NextTo)) {
         Ok(v) => v,
@@ -43,12 +49,8 @@ fn main() {
             exit(1);
         }
     };
-    let results_len = results.len();
 
-    let failed = results
-        .into_iter()
-        .filter_map(|x| x.err())
-        .collect::<Vec<_>>();
+    let (succeeded, failed) = split_results(results);
 
     println!("\n");
     if !failed.is_empty() {
@@ -66,11 +68,26 @@ fn main() {
     }
 
     println!(
-        "\n\nDecrypted {}/{} files in {:.2?}",
-        results_len - failed.len(),
+        "\nDecrypted {}/{} files in {:.2?}",
+        succeeded.len(),
         scanned.len(),
         start_time.elapsed()
     );
+
+    if succeeded.iter().count() > 1 {
+        let avg = avg_durations(&succeeded);
+        let max = succeeded
+            .iter()
+            .max_by(|(a, _), (b, _)| a.cmp(b))
+            .expect("iter empty");
+
+        println!("   -> Average time per item: {:.2?}", avg);
+        println!(
+            "   -> The file '{}' took the longest at {:.2?}\n",
+            max.1.display(),
+            max.0
+        );
+    }
 }
 
 fn pretty_print_key(game: &RpgGame) {
@@ -114,4 +131,29 @@ impl Display for Counts {
             total, self.image, self.audio, self.video
         )
     }
+}
+
+/// Averages the duration of the successfull decryption results
+fn avg_durations<'a>(durations: &[(Duration, PathBuf)]) -> Duration {
+    let len = durations.len() as u32;
+    let total: Duration = durations.iter().map(|(dur, _)| dur).sum();
+
+    total / len
+}
+
+fn split_results<V, E>(results: Vec<Result<V, E>>) -> (Vec<V>, Vec<E>) {
+    // Ther's probably a cleaner way to split the results, but oh well...
+    let mut succeeded = Vec::with_capacity(results.len());
+    let failed = results
+        .into_iter()
+        .filter_map(|x| match x {
+            Ok(v) => {
+                succeeded.push(v);
+                None
+            }
+            Err(e) => Some(e),
+        })
+        .collect::<Vec<_>>();
+
+    (succeeded, failed)
 }

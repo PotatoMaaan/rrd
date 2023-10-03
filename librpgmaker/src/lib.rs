@@ -10,6 +10,7 @@ use std::{
     num::ParseIntError,
     path::{Path, PathBuf},
     sync::{atomic::AtomicI64, Arc},
+    time::{Duration, Instant},
 };
 use system_json::SystemJson;
 use walkdir::WalkDir;
@@ -111,7 +112,8 @@ impl RpgGame {
 
     /// Decrypt all files in the game directory.
     ///
-    /// Returns the number of files decrypted or an error.
+    /// Returns a Vec of results that contain eiter the decryption `Duration`
+    /// and the filename, or an Error.
     ///
     /// When `verbose` is true, the decryption progress will be
     /// printed to stdout. The total number of files will only
@@ -119,17 +121,18 @@ impl RpgGame {
     pub fn decrypt_all(
         &mut self,
         output: &OutputSettings,
-    ) -> Result<Vec<Result<(), Error>>, Error> {
+    ) -> Result<Vec<Result<(Duration, PathBuf), Error>>, Error> {
         let files = WalkDir::new(&self.path)
             .into_iter()
+            .par_bridge()
             .filter_map(Result::ok)
             .filter_map(|entry| RpgFile::from_path(entry.path()));
 
         let num_decrypted = Arc::new(AtomicI64::new(0));
 
         let results = files
-            .par_bridge()
-            .map(|mut file| -> Result<(), Error> {
+            .map(|mut file| -> Result<(Duration, PathBuf), Error> {
+                let start_time = Instant::now();
                 use std::sync::atomic::Ordering as Ord;
 
                 file.decrypt(&self.key)?;
@@ -144,9 +147,9 @@ impl RpgGame {
                     &new_path,
                 );
 
-                fs::write(&new_path, file.data)?;
+                fs::write(&new_path, &file.data)?;
 
-                Ok(())
+                Ok((start_time.elapsed(), file.orig_path.clone()))
             })
             .collect::<Vec<_>>();
 

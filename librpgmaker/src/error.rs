@@ -40,7 +40,7 @@ pub enum Error {
     NotEncrypted,
 
     /// The file is to short to be decrypted
-    FileToShort(PathBuf),
+    FileTooShort(PathBuf),
 }
 
 impl Display for Error {
@@ -65,7 +65,7 @@ impl Display for Error {
                 format!("The output directory '{}' already exists!", path.display())
             }
             Error::NotEncrypted => format!("The game is not encrypted"),
-            Error::FileToShort(path) => {
+            Error::FileTooShort(path) => {
                 format!(
                     "The following file was too short to decrypt:\n   -> {}",
                     path.display()
