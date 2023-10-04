@@ -6,10 +6,11 @@ use rayon::prelude::{ParallelBridge, ParallelIterator};
 use rpg_file::{RpgFile, RpgFileType};
 use serde_json::Value;
 use std::{
+    alloc::Layout,
     fs,
     num::ParseIntError,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicI64, Arc},
+    sync::atomic::AtomicI64,
     time::{Duration, Instant},
 };
 use system_json::SystemJson;
@@ -81,12 +82,12 @@ impl RpgGame {
         let (key, orig_key) = Self::try_get_key(&system_json.data)?;
 
         Ok(Self {
-            num_files: None,
             verbose,
             key,
             orig_key,
             system_json,
             path: path.as_ref().to_path_buf(),
+            num_files: None,
         })
     }
 
@@ -122,34 +123,39 @@ impl RpgGame {
         &mut self,
         output: &OutputSettings,
     ) -> Result<Vec<Result<(Duration, PathBuf), Error>>, Error> {
+        use std::sync::atomic::Ordering as Ord;
+
+        // Only scan files if not previously already done
+        let num_files = self.num_files.unwrap_or(self.scan_files()?.len());
+
         let files = WalkDir::new(&self.path)
             .into_iter()
             .par_bridge()
             .filter_map(Result::ok)
             .filter_map(|entry| RpgFile::from_path(entry.path()));
 
-        let num_decrypted = Arc::new(AtomicI64::new(0));
+        let num_decrypted = AtomicI64::new(0);
 
         let results = files
             .map(|mut file| -> Result<(Duration, PathBuf), Error> {
                 let start_time = Instant::now();
-                use std::sync::atomic::Ordering as Ord;
 
                 file.decrypt(&self.key)?;
                 let new_path = create_path_from_output(output, &file, &self.path)?;
 
                 num_decrypted.fetch_add(1, Ord::SeqCst);
-                print_progress(
-                    self.num_files,
-                    num_decrypted.load(Ord::SeqCst) as u64,
-                    self.verbose,
-                    &file,
-                    &new_path,
-                );
+                if self.verbose {
+                    print_progress(
+                        num_files,
+                        num_decrypted.load(Ord::SeqCst) as u64,
+                        &file,
+                        &new_path,
+                    );
+                }
 
-                fs::write(&new_path, &file.data)?;
+                fs::write(&new_path, file.data())?;
 
-                Ok((start_time.elapsed(), file.orig_path.clone()))
+                Ok((start_time.elapsed(), file.orig_path().into()))
             })
             .collect::<Vec<_>>();
 
@@ -242,17 +248,17 @@ fn create_path_from_output(
     game_path: &Path,
 ) -> Result<PathBuf, Error> {
     let new_path = match output {
-        OutputSettings::NextTo => file.new_path.clone(),
+        OutputSettings::NextTo => file.new_path().to_path_buf(),
 
         OutputSettings::Replace => {
-            fs::remove_file(&file.orig_path)?;
-            file.new_path.clone()
+            fs::remove_file(file.orig_path())?;
+            file.new_path().to_path_buf()
         }
 
         OutputSettings::Output { dir } => {
-            let new_path = dir.join(file.new_path.strip_prefix(game_path)?);
+            let new_path = dir.join(file.new_path().strip_prefix(game_path)?);
             fs::create_dir_all(new_path.parent().expect("No parent"))?;
-            new_path
+            new_path.to_path_buf()
         }
 
         OutputSettings::Flatten { dir } => {
@@ -265,7 +271,7 @@ fn create_path_from_output(
             // Neither OsStr or OsString have a replace() method. the bstr crate would help here,
             // but adding a whole new crate just for this does not seem worth it.
             let path_str = file
-                .new_path // test_files/game/www/img/test.png
+                .new_path() // test_files/game/www/img/test.png
                 .strip_prefix(game_path) // www/img/test.png
                 .expect("no parent")
                 .to_string_lossy()
@@ -278,29 +284,12 @@ fn create_path_from_output(
     Ok(new_path.clone())
 }
 
-fn print_progress(
-    num_files: Option<usize>,
-    num_decrypted: u64,
-    verbose: bool,
-    file: &RpgFile,
-    new_path: &Path,
-) {
-    match (num_files, verbose) {
-        (Some(num_files), true) => {
-            println!(
-                "[{}/{}] {}\n  -> {}",
-                num_decrypted,
-                num_files,
-                file.orig_path.display(),
-                new_path.display()
-            );
-        }
-        (None, true) => println!(
-            "[{}] {}\n  -> {}",
-            num_decrypted,
-            file.orig_path.display(),
-            new_path.display()
-        ),
-        _ => {}
-    }
+fn print_progress(num_files: usize, num_decrypted: u64, file: &RpgFile, new_path: &Path) {
+    println!(
+        "[{}/{}] {}\n  -> {}",
+        num_decrypted,
+        num_files,
+        file.orig_path().display(),
+        new_path.display()
+    );
 }

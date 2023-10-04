@@ -60,10 +60,10 @@ fn test_decrypt() {
 
     file.decrypt(KEY).unwrap();
     let mut hasher = Sha256::new();
-    hasher.update(&file.data);
+    hasher.update(file.data());
     let result = hasher.finalize();
 
-    println!("\ndecrypted len: {}", file.data.len());
+    println!("\ndecrypted len: {}", file.data().len());
     assert_eq!(format!("{:x}", result), IMG_UNENC_HASH);
 }
 
@@ -95,7 +95,7 @@ fn test_decryption_fail() {
 
     file.decrypt(&[1, 2, 3, 4, 5]).unwrap();
     let mut hasher = Sha256::new();
-    hasher.update(&file.data);
+    hasher.update(file.data());
     let result = hasher.finalize();
 
     assert_ne!(format!("{:x}", result), IMG_UNENC_HASH);

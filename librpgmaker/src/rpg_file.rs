@@ -1,9 +1,12 @@
+use crate::error::Error;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use crate::error::Error;
+const RPG_HEADER: &[u8] = &[
+    0x52, 0x50, 0x47, 0x4D, 0x56, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
 
 /// Represents a decryptable file in an RpgMaker game.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -20,13 +23,17 @@ pub enum RpgFileType {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RpgFile {
-    pub data: Vec<u8>,
-    pub file_type: RpgFileType,
-    pub new_path: PathBuf,
-    pub orig_path: PathBuf,
+    data: Vec<u8>,
+    file_type: RpgFileType,
+    new_path: PathBuf,
+    orig_path: PathBuf,
 }
 
 impl RpgFileType {
+    pub fn from_unencrypted<P: AsRef<Path>>(path: P) -> Option<Self> {
+        todo!("implement!!!");
+    }
+
     /// Checks if a given path is an `RpgFile` (based on extension)
     ///
     /// ## Example
@@ -76,26 +83,55 @@ impl RpgFileType {
 }
 
 impl RpgFile {
-    pub fn from_path(path: &Path) -> Option<Self> {
-        let file_type = RpgFileType::scan(path)?;
+    /// Attempts to construct Self from a given path
+    ///
+    /// Returns Some(`RpgFile`) when the file is an `RpgFile` and
+    /// None if it's not
+    /// > Note that this is based on filename alone.
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Option<Self> {
+        let file_type = RpgFileType::scan(path.as_ref())?;
 
-        let Ok(data) = fs::read(path) else {
+        let Ok(data) = fs::read(&path) else {
             return None;
         };
 
         let ext = file_type.to_extension();
 
-        let mut new_path = path.to_path_buf();
+        let mut new_path = path.as_ref().to_path_buf();
         let _ = new_path.set_extension(ext);
 
         Some(Self {
             data,
             file_type,
             new_path,
-            orig_path: path.to_path_buf(),
+            orig_path: path.as_ref().to_path_buf(),
         })
     }
 
+    /// Retuns the orignal path of the `RpgFile`.
+    ///
+    /// eg. `test_files/www/img/test.rpgmvp`
+    #[inline]
+    pub fn orig_path(&self) -> &Path {
+        &self.orig_path
+    }
+
+    /// Returns the new path of the `RpgFile`
+    ///
+    /// eg. `test_files/www/img//test.png`
+    #[inline]
+    pub fn new_path(&self) -> &Path {
+        &self.new_path
+    }
+
+    /// Provides a view into the files data
+    #[inline]
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Constructs an `RpgFile` from the given parts. It is the callers responsibity to ensure that
+    /// the given data matches.
     #[allow(unused)]
     pub unsafe fn from_parts(data: Vec<u8>, file_type: RpgFileType, orig_path: PathBuf) -> Self {
         let mut new_path = orig_path.clone();
@@ -142,10 +178,27 @@ impl RpgFile {
 
         self.data.drain(0..16); // strip off rpgmaker header
         let (header, _) = self.data.split_at_mut(16); // get a reference to header
-        header
-            .iter_mut()
+
+        Self::rpg_xor(header, key); // XOR the header with the key
+
+        Ok(())
+    }
+
+    fn rpg_xor(data: &mut [u8], key: &[u8]) {
+        data.iter_mut()
             .enumerate()
-            .for_each(|(i, d)| *d ^= key[i % key.len()]); // XOR the header with the key
+            .for_each(|(i, d)| *d ^= key[i % key.len()])
+    }
+
+    pub fn encrypt(&mut self, key: &[u8]) -> Result<(), Error> {
+        let (header, _) = self.data.split_at_mut(16); // get a reference to the header
+        Self::rpg_xor(header, key); // encrypt header
+
+        let mut tmp_data = Vec::with_capacity(RPG_HEADER.len() + self.data.len()); // pre-allocate space for self.data
+        tmp_data.extend_from_slice(RPG_HEADER); // push the rpg header into the new vec
+        tmp_data.append(&mut self.data); // append the (now encrypted) data
+
+        self.data = tmp_data; // assign self.data to the new data
         Ok(())
     }
 }
