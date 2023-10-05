@@ -51,14 +51,14 @@ const KEY: &[u8] = &[
 fn test_decrypt() {
     let mut file;
     unsafe {
-        file = RpgFile::from_parts(
+        file = RpgFile::from_raw_parts_encrypted(
             IMG_ENC.to_vec(),
             crate::rpg_file::RpgFileType::Image,
             PathBuf::from("test_images/test.rpgmvp"),
         );
     }
 
-    file.decrypt(KEY).unwrap();
+    let file = file.decrypt(KEY).unwrap();
     let mut hasher = Sha256::new();
     hasher.update(file.data());
     let result = hasher.finalize();
@@ -71,7 +71,7 @@ fn test_decrypt() {
 fn test_decrypt_short() {
     let mut file;
     unsafe {
-        file = RpgFile::from_parts(
+        file = RpgFile::from_raw_parts_encrypted(
             IMG_ENC[0..32].to_vec(),
             crate::rpg_file::RpgFileType::Image,
             PathBuf::from("test_images/test.rpgmvp"),
@@ -84,16 +84,16 @@ fn test_decrypt_short() {
 
 #[test]
 fn test_decryption_fail() {
-    let mut file;
+    let file;
     unsafe {
-        file = RpgFile::from_parts(
+        file = RpgFile::from_raw_parts_encrypted(
             IMG_ENC.to_vec(),
             crate::rpg_file::RpgFileType::Image,
             PathBuf::from("test_images/test.rpgmvp"),
         );
     }
 
-    file.decrypt(&[1, 2, 3, 4, 5]).unwrap();
+    let file = file.decrypt(&[1, 2, 3, 4, 5]).unwrap();
     let mut hasher = Sha256::new();
     hasher.update(file.data());
     let result = hasher.finalize();
@@ -105,7 +105,7 @@ fn test_decryption_fail() {
 fn test_create_path_from_output_flatten_1() {
     // Case 1
     let file1 = unsafe {
-        RpgFile::from_parts(
+        RpgFile::from_raw_parts_encrypted(
             vec![],
             RpgFileType::Image,
             PathBuf::from("test_files/game/www/img/test.rpgmvp"),
@@ -124,7 +124,7 @@ fn test_create_path_from_output_flatten_1() {
 #[test]
 fn test_create_path_from_output_flatten_2() {
     let file1 = unsafe {
-        RpgFile::from_parts(
+        RpgFile::from_raw_parts_encrypted(
             vec![],
             RpgFileType::Audio,
             PathBuf::from("../../game/www/img/test.rpgmvo"),
@@ -148,7 +148,7 @@ fn test_create_path_from_output_replace_1() {
     fs::create_dir_all(&orig_file.parent().unwrap()).unwrap();
     fs::write(&orig_file, "test").unwrap();
 
-    let file1 = unsafe { RpgFile::from_parts(vec![], RpgFileType::Audio, orig_file) };
+    let file1 = unsafe { RpgFile::from_raw_parts_encrypted(vec![], RpgFileType::Audio, orig_file) };
 
     let out1 = OutputSettings::Replace;
 

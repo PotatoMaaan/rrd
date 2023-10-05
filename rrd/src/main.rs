@@ -1,92 +1,80 @@
 use std::{
     fmt::Display,
-    path::PathBuf,
+    fs,
+    path::{Path, PathBuf},
     process::exit,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use clap::Parser;
 use cli::*;
 use itertools::Itertools;
-use librpgmaker::prelude::*;
+use librpgmaker::{decode_hex, prelude::*};
 
 mod cli;
 
 fn main() {
     let args = Cli::parse();
 
-    let mut game = RpgGame::new(args.game_dir, !args.quiet).unwrap_or_else(|e| {
-        eprintln!("Failed to open game dir: {}", e);
-        exit(1);
-    });
+    match args.command {
+        Commands::DecryptFile { path, output, key } => {
+            let Some(file) = RpgFile::from_path_encrypted(&path) else {
+                eprintln!("File is not a valid RpgMaker file!");
+                exit(1);
+            };
 
-    pretty_print_key(&game);
+            let Ok(key) = librpgmaker::decode_hex(&key) else {
+                eprintln!("Key is not valid!");
+                exit(1);
+            };
+            let file = file.decrypt(&key).unwrap();
 
-    if args.key {
-        exit(0);
-    }
-
-    let scanned = match game.scan_files() {
-        Ok(files) => files,
-        Err(e) => {
-            eprintln!("Failed to scan the game: {}", e);
-            exit(1);
+            if let Err(err) = fs::write(
+                output.unwrap_or(file.decrypted_path().to_path_buf()),
+                file.data(),
+            ) {
+                eprintln!("Failed writing file: {}", err);
+            }
         }
-    };
-    let counts = count_variants(scanned.iter());
-    println!("{}", counts);
 
-    if args.scan {
-        exit(0);
-    }
+        Commands::EncryptFile {
+            ref path,
+            key,
+            output,
+        } => {
+            let file = RpgFile::from_path_decrypted(path).unwrap();
 
-    println!("Starting decryption...");
-    let start_time = Instant::now();
-    let results = match game.decrypt_all(&args.output.unwrap_or(OutputSettings::NextTo)) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Failed to decryptt the game: {}", e);
-            exit(1);
+            let file = file.encrypt(&decode_hex(&key).unwrap()).unwrap();
+
+            let path = output.unwrap_or(file.encrypted_path().to_path_buf());
+            dbg!(&path);
+            fs::write(path, file.data()).unwrap();
         }
-    };
 
-    let (succeeded, failed) = split_results(results);
+        Commands::DecryptGame { path, output } => {
+            let mut game = RpgGame::new(path, !args.quiet).unwrap();
 
-    println!("\n");
-    if !failed.is_empty() {
-        println!("\n");
-
-        for error in &failed {
-            eprintln!("ERROR: {}", error);
+            game.decrypt_all(&output.unwrap_or(OutputSettings::NextTo))
+                .unwrap();
         }
-        print!(
-            "\n{} errors were encountered while decrypting",
-            failed.len()
-        );
-    } else {
-        println!("Game decrypted sucessfully!")
-    }
 
-    println!(
-        "\nDecrypted {}/{} files in {:.2?}",
-        succeeded.len(),
-        scanned.len(),
-        start_time.elapsed()
-    );
+        Commands::RestoreFile { ref path, output } => {
+            let file = RpgFile::from_path_encrypted(path).unwrap();
 
-    if succeeded.iter().count() > 1 {
-        let avg = avg_durations(&succeeded);
-        let max = succeeded
-            .iter()
-            .max_by(|(a, _), (b, _)| a.cmp(b))
-            .expect("iter empty");
+            let file = file.restore_img().unwrap();
 
-        println!("   -> Average time per item: {:.2?}", avg);
-        println!(
-            "   -> The file '{}' took the longest at {:.2?}\n",
-            max.1.display(),
-            max.0
-        );
+            let p = output.unwrap_or(file.decrypted_path().to_path_buf());
+            dbg!(&p);
+            fs::write(p, file.data()).unwrap();
+        }
+
+        Commands::Scan { path } => todo!(),
+
+        Commands::Key { ref path } => {
+            let game = get_game(path, &args);
+
+            pretty_print_key(&game);
+        }
     }
 }
 
@@ -156,4 +144,14 @@ fn split_results<V, E>(results: Vec<Result<V, E>>) -> (Vec<V>, Vec<E>) {
         .collect::<Vec<_>>();
 
     (succeeded, failed)
+}
+
+fn get_game(path: &Path, args: &cli::Cli) -> RpgGame {
+    match RpgGame::new(path, !args.quiet) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to open game: {}", e);
+            exit(1);
+        }
+    }
 }

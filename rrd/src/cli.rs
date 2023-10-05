@@ -1,4 +1,4 @@
-use clap::{command, Parser};
+use clap::{command, Parser, Subcommand};
 use librpgmaker::OutputSettings;
 use std::path::PathBuf;
 
@@ -6,21 +6,53 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(version)]
 pub struct Cli {
-    /// The game directory
-    pub game_dir: PathBuf,
-
-    #[command(subcommand)]
-    pub output: Option<OutputSettings>,
-
     /// Don't print individual files during decryption
     #[arg(short, long)]
     pub quiet: bool,
 
-    /// Just scan the amount of decryptable files
-    #[arg(short, long)]
-    pub scan: bool,
+    #[command(subcommand)]
+    pub command: Commands,
+}
 
-    /// Just print the key
-    #[arg(short, long)]
-    pub key: bool,
+#[derive(Subcommand, Debug, Clone)]
+pub enum Commands {
+    DecryptFile {
+        path: PathBuf,
+
+        key: String,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    EncryptFile {
+        path: PathBuf,
+
+        key: String,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    DecryptGame {
+        path: PathBuf,
+
+        #[command(subcommand)]
+        output: Option<OutputSettings>,
+    },
+
+    RestoreFile {
+        path: PathBuf,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    Scan {
+        path: PathBuf,
+    },
+
+    Key {
+        path: PathBuf,
+    },
 }

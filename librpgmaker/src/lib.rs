@@ -6,7 +6,6 @@ use rayon::prelude::{ParallelBridge, ParallelIterator};
 use rpg_file::{RpgFile, RpgFileType};
 use serde_json::Value;
 use std::{
-    alloc::Layout,
     fs,
     num::ParseIntError,
     path::{Path, PathBuf},
@@ -104,7 +103,7 @@ impl RpgGame {
                 Ok(v) => Some(v),
                 Err(_) => None,
             })
-            .filter_map(|entry| RpgFileType::scan(entry.path()))
+            .filter_map(|entry| RpgFileType::from_encrypted_path(entry.path()))
             .collect();
 
         self.num_files = Some(files.len());
@@ -132,7 +131,7 @@ impl RpgGame {
             .into_iter()
             .par_bridge()
             .filter_map(Result::ok)
-            .filter_map(|entry| RpgFile::from_path(entry.path()));
+            .filter_map(|entry| RpgFile::from_path_encrypted(entry.path()));
 
         let num_decrypted = AtomicI64::new(0);
 
@@ -140,7 +139,7 @@ impl RpgGame {
             .map(|mut file| -> Result<(Duration, PathBuf), Error> {
                 let start_time = Instant::now();
 
-                file.decrypt(&self.key)?;
+                let file = file.decrypt(&self.key)?;
                 let new_path = create_path_from_output(output, &file, &self.path)?;
 
                 num_decrypted.fetch_add(1, Ord::SeqCst);
@@ -155,7 +154,7 @@ impl RpgGame {
 
                 fs::write(&new_path, file.data())?;
 
-                Ok((start_time.elapsed(), file.orig_path().into()))
+                Ok((start_time.elapsed(), file.encrypted_path().into()))
             })
             .collect::<Vec<_>>();
 
@@ -185,13 +184,6 @@ impl RpgGame {
     }
 
     fn try_get_key(system_json: &Value) -> Result<(Vec<u8>, String), Error> {
-        fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-            (0..s.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-                .collect()
-        }
-
         match system_json.get(ENCKEY_KEY) {
             Some(key) => match key.as_str() {
                 Some(key) => Ok((decode_hex(key)?, key.to_owned())),
@@ -242,21 +234,21 @@ fn check_encrypted(value: &Value) -> Result<bool, Error> {
     Ok(audio || img)
 }
 
-fn create_path_from_output(
+fn create_path_from_output<T>(
     output: &OutputSettings,
-    file: &RpgFile,
+    file: &RpgFile<T>,
     game_path: &Path,
 ) -> Result<PathBuf, Error> {
     let new_path = match output {
-        OutputSettings::NextTo => file.new_path().to_path_buf(),
+        OutputSettings::NextTo => file.decrypted_path().to_path_buf(),
 
         OutputSettings::Replace => {
-            fs::remove_file(file.orig_path())?;
-            file.new_path().to_path_buf()
+            fs::remove_file(file.encrypted_path())?;
+            file.decrypted_path().to_path_buf()
         }
 
         OutputSettings::Output { dir } => {
-            let new_path = dir.join(file.new_path().strip_prefix(game_path)?);
+            let new_path = dir.join(file.decrypted_path().strip_prefix(game_path)?);
             fs::create_dir_all(new_path.parent().expect("No parent"))?;
             new_path.to_path_buf()
         }
@@ -271,7 +263,7 @@ fn create_path_from_output(
             // Neither OsStr or OsString have a replace() method. the bstr crate would help here,
             // but adding a whole new crate just for this does not seem worth it.
             let path_str = file
-                .new_path() // test_files/game/www/img/test.png
+                .decrypted_path() // test_files/game/www/img/test.png
                 .strip_prefix(game_path) // www/img/test.png
                 .expect("no parent")
                 .to_string_lossy()
@@ -284,12 +276,43 @@ fn create_path_from_output(
     Ok(new_path.clone())
 }
 
-fn print_progress(num_files: usize, num_decrypted: u64, file: &RpgFile, new_path: &Path) {
+fn print_progress<T>(num_files: usize, num_decrypted: u64, file: &RpgFile<T>, new_path: &Path) {
     println!(
         "[{}/{}] {}\n  -> {}",
         num_decrypted,
         num_files,
-        file.orig_path().display(),
+        file.encrypted_path().display(),
         new_path.display()
     );
+}
+
+/// A utility function to turn a string of "hex bytes" into actual bytes.
+///
+/// # Examples
+/// ```
+/// use librpgmaker::decode_hex;
+///
+/// let string = "0f1a2b"; // valid
+/// let hex = decode_hex(string).expect("invalid string");
+///
+/// assert_eq!(hex, vec![0x0f, 0x1a, 0x2b]);
+///
+/// let string = "0x0f3b"; // invalid
+/// let result = decode_hex(string);
+///
+/// assert!(result.is_err());
+/// ```
+pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
+}
+
+/// The XOR function used by RpgMaker
+#[inline]
+pub fn rpg_xor(data: &mut [u8], key: &[u8]) {
+    data.iter_mut()
+        .enumerate()
+        .for_each(|(i, d)| *d ^= key[i % key.len()])
 }
