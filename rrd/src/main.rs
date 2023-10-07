@@ -1,3 +1,7 @@
+use clap::Parser;
+use cli::*;
+use itertools::Itertools;
+use librpgmaker::{decode_hex, prelude::*};
 use std::{
     fmt::Display,
     fs,
@@ -5,11 +9,6 @@ use std::{
     process::exit,
     time::Duration,
 };
-
-use clap::Parser;
-use cli::*;
-use itertools::Itertools;
-use librpgmaker::{decode_hex, prelude::*};
 
 mod cli;
 
