@@ -35,7 +35,9 @@ pub struct RpgGame {
     key_str: String,
     system_json: SystemJson,
     verbose: bool,
-    num_files: Cell<Option<usize>>,
+    num_encrypted_files: Cell<Option<usize>>,
+    num_decrypted_files: Cell<Option<usize>>,
+    encrypted: bool,
 }
 
 /// Configures how to process and store the decrypted files.
@@ -80,6 +82,7 @@ impl RpgGame {
     pub fn new<P: AsRef<Path>>(path: P, verbose: bool) -> Result<Self, Error> {
         let system_json = Self::get_system_json(path.as_ref())?;
         let (key, orig_key) = Self::try_get_key(&system_json.data)?;
+        let encrypted = system_json.encrypted;
 
         Ok(Self {
             verbose,
@@ -87,7 +90,9 @@ impl RpgGame {
             key_str: orig_key,
             system_json,
             game_path: path.as_ref().to_path_buf(),
-            num_files: Cell::new(None),
+            num_encrypted_files: Cell::new(None),
+            num_decrypted_files: Cell::new(None),
+            encrypted: encrypted,
         })
     }
 
@@ -97,14 +102,31 @@ impl RpgGame {
     ///
     /// The result of this operation is cached and will be used to display the total amount
     /// of files left when decrypting (if verbose == true)
-    pub fn scan_files(&self) -> Result<Vec<RpgFileType>, Error> {
+    pub fn scan_encrypted_files(&self) -> Result<Vec<RpgFileType>, Error> {
         let files: Vec<_> = WalkDir::new(&self.game_path)
             .into_iter()
             .filter_map(Result::ok)
             .filter_map(|entry| RpgFileType::from_encrypted_path(entry.path()))
             .collect();
 
-        self.num_files.set(Some(files.len()));
+        self.num_encrypted_files.set(Some(files.len()));
+        Ok(files)
+    }
+
+    /// Scans files in the game directory and returns a list of all files that can decrypted.
+    ///
+    /// This does not read the file contents, only filename.
+    ///
+    /// The result of this operation is cached and will be used to display the total amount
+    /// of files left when decrypting (if verbose == true)
+    pub fn scan_decrypted_files(&self) -> Result<Vec<RpgFileType>, Error> {
+        let files: Vec<_> = WalkDir::new(&self.game_path)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter_map(|entry| RpgFileType::from_decrypted_path(entry.path()))
+            .collect();
+
+        self.num_decrypted_files.set(Some(files.len()));
         Ok(files)
     }
 
@@ -113,17 +135,26 @@ impl RpgGame {
     /// Returns a Vec of results that contain eiter the decryption `Duration`
     /// and the filename, or an Error.
     ///
+    /// # Panics
+    /// When the game is already decrypted
+    ///
     /// When `verbose` is true, the decryption progress will be
-    /// printed to stdout. The total number of files will only
-    /// be displayed if `scan_files()` was run beforehand.
+    /// printed to stdout.
     pub fn decrypt_all(
         &mut self,
         output: &OutputSettings,
     ) -> Result<Vec<Result<(Duration, PathBuf), Error>>, Error> {
         use std::sync::atomic::Ordering as Ord;
+        assert_eq!(
+            self.encrypted, true,
+            "Attempted to decrypt already decrypted game!"
+        );
 
         // Only scan files if not previously already done
-        let num_files = self.num_files.get().unwrap_or(self.scan_files()?.len());
+        let num_files = self
+            .num_encrypted_files
+            .get()
+            .unwrap_or(self.scan_encrypted_files()?.len());
         let num_decrypted = AtomicI64::new(0);
 
         let results = WalkDir::new(&self.game_path)
@@ -142,7 +173,7 @@ impl RpgGame {
                     print_progress(
                         num_files,
                         num_decrypted.load(Ord::SeqCst) as u64,
-                        &file,
+                        &file.encrypted_path(),
                         &new_path,
                     );
                 }
@@ -158,29 +189,63 @@ impl RpgGame {
             self.system_json.encrypted = false;
             self.system_json.write()?;
         }
+        self.encrypted = false;
 
         Ok(results)
     }
 
-    pub fn encrypt_all(&mut self) -> Result<Vec<Result<(), Error>>, Error> {
-        let num_files = self.num_files.get().unwrap_or(self.scan_files()?.len());
+    /// Encrypt all files in the game directory.
+    ///
+    /// Returns a Vec of results that contain eiter the decryption `Duration`
+    /// and the filename, or an Error.
+    ///
+    /// # Panics
+    /// When the game is already encrypted
+    ///
+    /// When `verbose` is true, the decryption progress will be
+    /// printed to stdout.
+    pub fn encrypt_all(&mut self) -> Result<Vec<Result<(Duration, PathBuf), Error>>, Error> {
+        use std::sync::atomic::Ordering as Ord;
+        assert_eq!(
+            self.encrypted, false,
+            "Attempted to encrypt already encrypted game!"
+        );
+
+        let num_files = self
+            .num_decrypted_files
+            .get()
+            .unwrap_or(self.scan_decrypted_files()?.len());
+        let num_encrypted = AtomicI64::new(0);
 
         let results = WalkDir::new(&self.game_path)
             .into_iter()
             .par_bridge()
             .filter_map(Result::ok)
             .filter_map(|entry| RpgFile::from_path_decrypted(entry.path()))
-            .map(|file| -> Result<(), Error> {
+            .map(|file| -> Result<(Duration, PathBuf), Error> {
+                let start_time = Instant::now();
+
                 let file = file.encrypt(&self.key_bytes)?;
+
+                num_encrypted.fetch_add(1, Ord::SeqCst);
+                if self.verbose {
+                    print_progress(
+                        num_files,
+                        num_encrypted.load(Ord::SeqCst) as u64,
+                        &file.decrypted_path(),
+                        &file.encrypted_path(),
+                    );
+                }
 
                 fs::write(&file.encrypted_path(), file.data())?;
 
-                Ok(())
+                Ok((start_time.elapsed(), file.decrypted_path().to_path_buf()))
             })
             .collect::<Vec<_>>();
 
         self.system_json.encrypted = true;
         self.system_json.write()?;
+        self.encrypted = true;
 
         Ok(results)
     }
@@ -294,12 +359,12 @@ fn create_path_from_output<T>(
     Ok(new_path.clone())
 }
 
-fn print_progress<T>(num_files: usize, num_decrypted: u64, file: &RpgFile<T>, new_path: &Path) {
+fn print_progress(num_files: usize, num_decrypted: u64, old_path: &Path, new_path: &Path) {
     println!(
         "[{}/{}] {}\n  -> {}",
         num_decrypted,
         num_files,
-        file.encrypted_path().display(),
+        old_path.display(),
         new_path.display()
     );
 }

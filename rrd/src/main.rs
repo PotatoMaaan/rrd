@@ -1,16 +1,18 @@
 use clap::Parser;
 use cli::*;
 use itertools::Itertools;
-use librpgmaker::{decode_hex, prelude::*};
+use librpgmaker::prelude::*;
 use std::{
     fmt::Display,
     fs,
     path::{Path, PathBuf},
     process::exit,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 mod cli;
+
+const DEFAULT_OUTPUT: OutputSettings = OutputSettings::NextTo;
 
 fn main() {
     let args = Cli::parse();
@@ -22,18 +24,27 @@ fn main() {
                 exit(1);
             };
 
-            let Ok(key) = librpgmaker::decode_hex(&key) else {
-                eprintln!("Key is not valid!");
+            let Ok(key_bytes) = librpgmaker::decode_hex(&key) else {
+                eprintln!("Invalid key!");
                 exit(1);
             };
-            let file = file.decrypt(&key).unwrap();
 
-            if let Err(err) = fs::write(
-                output.unwrap_or(file.decrypted_path().to_path_buf()),
-                file.data(),
-            ) {
-                eprintln!("Failed writing file: {}", err);
+            let file = match file.decrypt(&key_bytes) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Failed decrypting file: {}", e);
+                    exit(1);
+                }
+            };
+
+            let out_path = output.unwrap_or(file.decrypted_path().to_path_buf());
+
+            if let Err(err) = fs::write(&out_path, file.data()) {
+                eprintln!("Failed writing to {}: {}", out_path.display(), err);
             }
+
+            println!("Decrypted '{}' with key '{}'", path.display(), key,);
+            println!("Saved to: {}", out_path.display());
         }
 
         Commands::EncryptFile {
@@ -41,44 +52,153 @@ fn main() {
             key,
             output,
         } => {
-            let file = RpgFile::from_path_decrypted(path).unwrap();
+            let Some(file) = RpgFile::from_path_decrypted(&path) else {
+                eprintln!(
+                    "'{}' cannot be encrypted with RPGmaker encryption.",
+                    &path.display()
+                );
 
-            let file = file.encrypt(&decode_hex(&key).unwrap()).unwrap();
+                exit(1);
+            };
 
-            let path = output.unwrap_or(file.encrypted_path().to_path_buf());
-            dbg!(&path);
-            fs::write(path, file.data()).unwrap();
-        }
+            let Ok(key_bytes) = librpgmaker::decode_hex(&key) else {
+                eprintln!("Invalid key!");
+                exit(1);
+            };
 
-        Commands::DecryptGame { path, output } => {
-            let mut game = RpgGame::new(path, !args.quiet).unwrap();
+            let file = match file.encrypt(&key_bytes) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Failed encrypting file: {}", e);
+                    exit(1);
+                }
+            };
 
-            game.decrypt_all(&output.unwrap_or(OutputSettings::NextTo))
-                .unwrap();
+            let out_path = output.unwrap_or(file.encrypted_path().to_path_buf());
+
+            if let Err(e) = fs::write(&out_path, file.data()) {
+                eprintln!("Failed writing to file: {}", e);
+                exit(1);
+            };
+
+            println!("Decrypted '{}' with key '{}'", path.display(), key);
+            println!("Saved to: {}", out_path.display());
         }
 
         Commands::RestoreFile { ref path, output } => {
-            let file = RpgFile::from_path_encrypted(path).unwrap();
+            let Some(file) = RpgFile::from_path_encrypted(path) else {
+                eprintln!("{} is not a valid RpgMaker file!", path.display());
+                exit(1);
+            };
 
-            let file = file.restore_img().unwrap();
+            let file = match file.restore_img() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Failed to restore file: {}", e);
+                    exit(1);
+                }
+            };
 
-            let p = output.unwrap_or(file.decrypted_path().to_path_buf());
-            dbg!(&p);
-            fs::write(p, file.data()).unwrap();
+            let out_path = output.unwrap_or(file.decrypted_path().to_path_buf());
+            fs::write(&out_path, file.data()).unwrap();
+
+            println!("Restored '{}'", path.display());
+            println!("Saved to: {}", out_path.display());
         }
 
-        Commands::Scan { path } => todo!(),
+        Commands::Scan { ref path } => {
+            let game = get_game(&path, &args);
+
+            let encrypted = game.scan_encrypted_files().unwrap_or_else(|e| {
+                eprintln!("Failed to scan game: {}", e);
+                exit(1);
+            });
+            let decrypted = game.scan_decrypted_files().unwrap_or_else(|e| {
+                eprintln!("Failed to scan game: {}", e);
+                exit(1);
+            });
+
+            let count_enc = count_variants(encrypted.iter());
+            let count_dec = count_variants(decrypted.iter());
+
+            pretty_print_key(&game);
+            println!(
+                "Found {} encrypted files:\n{}",
+                count_enc.total(),
+                count_enc
+            );
+            println!(
+                "Found {} decrypted files:\n{}",
+                count_dec.total(),
+                count_dec
+            );
+        }
 
         Commands::Key { ref path } => {
             let game = get_game(path, &args);
 
             pretty_print_key(&game);
         }
+
+        Commands::DecryptGame {
+            ref path,
+            ref output,
+        } => {
+            let mut game = get_game(&path, &args);
+
+            let start_time = Instant::now();
+            let results = game
+                .decrypt_all(&output.clone().unwrap_or(DEFAULT_OUTPUT))
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed decrypting game: {}", e);
+                    exit(1);
+                });
+
+            let elapsed = start_time.elapsed();
+            let results_len = results.len();
+            let (succeeded, failed) = split_results(results);
+
+            if !failed.is_empty() {
+                println!();
+
+                for err in &failed {
+                    println!("ERROR: {}", err);
+                }
+
+                println!("{} errors encrountered during encryption.", failed.len());
+            }
+
+            if !succeeded.is_empty() {
+                let avg = avg_durations(&succeeded);
+                let (max_dir, max_path) =
+                    succeeded.iter().max_by(|(a, _), (b, _)| a.cmp(b)).unwrap();
+
+                println!(
+                    "\n\nDecrypted {}/{} files in {:.2?}",
+                    succeeded.len(),
+                    results_len,
+                    elapsed
+                );
+
+                println!("\nAverage time per file: {:.2?}", avg);
+                println!(
+                    "\nMax time taken: {:.2?} by '{}'",
+                    max_dir,
+                    max_path.display()
+                );
+            } else {
+                println!("Decryption failed. See errors above.");
+            }
+        }
+
         Commands::EncryptGame { ref path } => {
             let mut game = get_game(path, &args);
-            let (succ, fail) = split_results(game.encrypt_all().unwrap());
+            let (succ, fail) = split_results(game.encrypt_all().unwrap_or_else(|e| {
+                eprintln!("Failed to encrypt files: {}", e);
+                exit(1);
+            }));
 
-            println!("Encrypted {} files.", succ.len());
+            println!("\n\nEncrypted {} files.", succ.len());
             println!("Failed encrypting {} files.", fail.len());
         }
     }
@@ -116,13 +236,18 @@ struct Counts {
     image: usize,
 }
 
+impl Counts {
+    fn total(&self) -> usize {
+        self.audio + self.video + self.audio
+    }
+}
+
 impl Display for Counts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let total = self.audio + self.video + self.image;
         write!(
             f,
-            "Found {} decryptable items:\n\n   - images: {}\n   - audios: {}\n   - videos: {}\n",
-            total, self.image, self.audio, self.video
+            "   - images: {}\n   - audios: {}\n   - videos: {}\n",
+            self.image, self.audio, self.video
         )
     }
 }
