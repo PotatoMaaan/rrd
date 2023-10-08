@@ -41,6 +41,10 @@ pub enum Commands {
         output: Option<OutputSettings>,
     },
 
+    EncryptGame {
+        path: PathBuf,
+    },
+
     RestoreFile {
         path: PathBuf,
 

@@ -74,6 +74,13 @@ fn main() {
 
             pretty_print_key(&game);
         }
+        Commands::EncryptGame { ref path } => {
+            let mut game = get_game(path, &args);
+            let (succ, fail) = split_results(game.encrypt_all().unwrap());
+
+            println!("Encrypted {} files.", succ.len());
+            println!("Failed encrypting {} files.", fail.len());
+        }
     }
 }
 

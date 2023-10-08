@@ -1,6 +1,5 @@
 [workspace]
 resolver = "2"
-
 members = ["rrd", "librpgmaker", "rrd-gui"]
 
 [profile.release]

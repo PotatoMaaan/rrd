@@ -2,7 +2,7 @@ use eframe::egui;
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(320.0, 240.0)),
+        initial_window_size: Some(egui::vec2(420.0, 360.0)),
         ..Default::default()
     };
     eframe::run_native(

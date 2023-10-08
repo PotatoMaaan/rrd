@@ -333,7 +333,7 @@ impl RpgFile<Decrypted> {
         let ext = file_type.to_extension_encrypted();
 
         let mut new_path = path.as_ref().to_path_buf();
-        let _ = new_path.set_extension(ext);
+        new_path.set_extension(ext);
 
         Some(Self {
             data,
