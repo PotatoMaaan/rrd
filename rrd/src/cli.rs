@@ -1,5 +1,4 @@
 use clap::{command, Parser};
-use librpgmaker::OutputSettings;
 use std::path::PathBuf;
 
 /// Decrypt files encryped by RPMVs default encryprion
@@ -8,9 +7,6 @@ use std::path::PathBuf;
 pub struct Cli {
     /// The game directory
     pub game_dir: PathBuf,
-
-    #[command(subcommand)]
-    pub output: Option<OutputSettings>,
 
     /// Don't print individual files during decryption
     #[arg(short, long)]

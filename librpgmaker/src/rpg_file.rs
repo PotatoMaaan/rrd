@@ -1,13 +1,12 @@
+use crate::error::Error;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use crate::error::Error;
-
 /// Represents a decryptable file in an RpgMaker game.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RpgFileType {
+pub enum FileType {
     /// eg. song1.rpgmvo
     Audio,
 
@@ -21,12 +20,11 @@ pub enum RpgFileType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RpgFile {
     pub data: Vec<u8>,
-    pub file_type: RpgFileType,
-    pub new_path: PathBuf,
-    pub orig_path: PathBuf,
+    pub file_type: FileType,
+    orig_path: PathBuf,
 }
 
-impl RpgFileType {
+impl FileType {
     /// Checks if a given path is an `RpgFile` (based on extension)
     ///
     /// ## Example
@@ -41,12 +39,12 @@ impl RpgFileType {
     /// assert!(is_rpgfile.is_some());
     /// ```
     #[must_use]
-    pub fn scan(path: &Path) -> Option<Self> {
+    pub fn from_path(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?;
         let ext = match ext {
-            "rpgmvo" | "ogg_" => RpgFileType::Audio,
-            "rpgmvm" | "m4a_" => RpgFileType::Video,
-            "rpgmvp" | "png_" => RpgFileType::Image,
+            "rpgmvo" | "ogg_" => FileType::Audio,
+            "rpgmvm" | "m4a_" => FileType::Video,
+            "rpgmvp" | "png_" => FileType::Image,
             _ => return None,
         };
         Some(ext)
@@ -65,46 +63,44 @@ impl RpgFileType {
     /// assert_eq!(ext, "m4a");
     /// ```
     #[must_use]
-    pub fn to_extension(&self) -> String {
+    pub fn to_extension_decrypted(&self) -> String {
         match self {
-            RpgFileType::Audio => "ogg",
-            RpgFileType::Video => "m4a",
-            RpgFileType::Image => "png",
+            FileType::Audio => "ogg",
+            FileType::Video => "m4a",
+            FileType::Image => "png",
         }
         .to_string()
+    }
+
+    #[must_use]
+    pub fn to_extension_encrypted(&self) -> String {
+        todo!()
     }
 }
 
 impl RpgFile {
     pub fn from_path(path: &Path) -> Option<Self> {
-        let file_type = RpgFileType::scan(path)?;
+        let file_type = FileType::from_path(path)?;
 
         let Ok(data) = fs::read(path) else {
             return None;
         };
 
-        let ext = file_type.to_extension();
-
-        let mut new_path = path.to_path_buf();
-        let _ = new_path.set_extension(ext);
-
         Some(Self {
             data,
             file_type,
-            new_path,
             orig_path: path.to_path_buf(),
         })
     }
 
     #[allow(unused)]
-    pub unsafe fn from_parts(data: Vec<u8>, file_type: RpgFileType, orig_path: PathBuf) -> Self {
+    pub unsafe fn from_raw_parts(data: Vec<u8>, file_type: FileType, orig_path: PathBuf) -> Self {
         let mut new_path = orig_path.clone();
-        new_path.set_extension(file_type.to_extension());
+        new_path.set_extension(file_type.to_extension_decrypted());
 
         Self {
             data,
             file_type,
-            new_path,
             orig_path,
         }
     }

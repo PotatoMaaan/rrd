@@ -15,6 +15,9 @@ pub enum Error {
     /// Error while interacting with the filesystem.
     IoError(std::io::Error),
 
+    /// Error while walking directory tree
+    WalkDirError(walkdir::Error),
+
     /// The System.json file was not valid JSON.
     /// See the included error for more details.
     SystemJsonInvalidJson(serde_json::Error),
@@ -71,11 +74,14 @@ impl Display for Error {
                     path.display()
                 )
             }
+            Error::WalkDirError(e) => format!("Error while walking directory: {}", e),
         };
 
         write!(f, "{}", content)
     }
 }
+
+impl std::error::Error for Error {}
 
 impl From<ParseIntError> for Error {
     fn from(value: ParseIntError) -> Self {
