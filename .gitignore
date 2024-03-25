@@ -5,3 +5,4 @@
 /perf.data*
 */target*
 *perf.data*
+flamegraph.svg

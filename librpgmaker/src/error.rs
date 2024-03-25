@@ -1,8 +1,4 @@
-use std::{
-    fmt::Display,
-    num::ParseIntError,
-    path::{PathBuf, StripPrefixError},
-};
+use std::{fmt::Display, num::ParseIntError, path::PathBuf};
 
 /// Represents an Error from the library.
 #[derive(Debug)]
@@ -13,7 +9,7 @@ pub enum Error {
     SystemJsonNotFound,
 
     /// Error while interacting with the filesystem.
-    IoError(std::io::Error),
+    IoError { err: std::io::Error, file: PathBuf },
 
     /// Error while walking directory tree
     WalkDirError(walkdir::Error),
@@ -29,18 +25,17 @@ pub enum Error {
     /// The included key was not in the expected format.
     SystemJsonInvalidKey { key: String },
 
-    /// Stripping a path prefix failed, see error for
-    /// more details
-    StrixPrefixFailed(StripPrefixError),
-
     /// Failed to parse a key from System.json
     KeyParseError(ParseIntError),
 
     /// The given output dir already exists.
     OutputDirExists(PathBuf),
 
-    /// The game is not encrypted.
+    /// The game is not encrypted (but should be).
     NotEncrypted,
+
+    /// The game is encrypted (but should not be).
+    Encrypted,
 
     /// The file is to short to be decrypted
     FileTooShort(PathBuf),
@@ -52,7 +47,7 @@ impl Display for Error {
             Error::SystemJsonNotFound => {
                 format!("The system.json file was not found. Make sure the directory is correct.")
             }
-            Error::IoError(io_err) => format!("IO Error: {}", io_err),
+            Error::IoError { err, file } => format!("IO Error on file {}: {}", file.display(), err),
             Error::SystemJsonInvalidJson(serde_err) => {
                 format!("Failed parsing JSON in system.json: {}", serde_err)
             }
@@ -62,12 +57,11 @@ impl Display for Error {
             Error::SystemJsonInvalidKey { key } => {
                 format!("The key '{}' in system.json was an invalid format", key)
             }
-            Error::StrixPrefixFailed(err) => format!("{}", err),
             Error::KeyParseError(err) => format!("{}", err),
             Error::OutputDirExists(path) => {
                 format!("The output directory '{}' already exists!", path.display())
             }
-            Error::NotEncrypted => format!("The game is not encrypted"),
+            Error::NotEncrypted => format!("The game is not encrypted (even though it should be)"),
             Error::FileTooShort(path) => {
                 format!(
                     "The following file was too short to decrypt:\n   -> {}",
@@ -75,6 +69,7 @@ impl Display for Error {
                 )
             }
             Error::WalkDirError(e) => format!("Error while walking directory: {}", e),
+            Error::Encrypted => format!("The game is encrypted (even though it should not be)"),
         };
 
         write!(f, "{}", content)
@@ -89,14 +84,4 @@ impl From<ParseIntError> for Error {
     }
 }
 
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Error::IoError(value)
-    }
-}
-
-impl From<StripPrefixError> for Error {
-    fn from(value: StripPrefixError) -> Self {
-        Self::StrixPrefixFailed(value)
-    }
-}
+pub type Result<T> = std::result::Result<T, crate::Error>;
