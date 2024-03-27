@@ -4,8 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{Encryption, EncryptionState};
-
 const HAS_ENC_AUIDO_KEY: &str = "hasEncryptedAudio";
 const HAS_ENC_IMG_KEY: &str = "hasEncryptedImages";
 const ENCKEY_KEY: &str = "encryptionKey";
@@ -39,26 +37,7 @@ impl SystemJson {
         }
     }
 
-    pub fn set_encryption_state(&mut self, state: Encryption) -> crate::error::Result<()> {
-        let state = match state {
-            Encryption::Encrypted(_) => true,
-            Encryption::Decrypted(_) => false,
-        };
-
-        let audio = self.data.get_mut(HAS_ENC_AUIDO_KEY).ok_or_else(|| {
-            crate::Error::SystemJsonKeyNotFound {
-                key: HAS_ENC_AUIDO_KEY.to_owned(),
-            }
-        })?;
-        *audio = serde_json::Value::Bool(state);
-
-        let imgs = self.data.get_mut(HAS_ENC_IMG_KEY).ok_or_else(|| {
-            crate::Error::SystemJsonKeyNotFound {
-                key: HAS_ENC_IMG_KEY.to_owned(),
-            }
-        })?;
-        *imgs = serde_json::Value::Bool(state);
-
+    fn write(&self) -> crate::error::Result<()> {
         fs::write(
             &self.path,
             serde_json::to_string(&self.data)
@@ -67,7 +46,31 @@ impl SystemJson {
         .map_err(|e| crate::Error::IoError {
             err: e,
             file: self.path.to_path_buf(),
+        })
+    }
+
+    pub fn set_encrypted_audio(&mut self, state: bool) -> crate::error::Result<()> {
+        let audio = self.data.get_mut(HAS_ENC_AUIDO_KEY).ok_or_else(|| {
+            crate::Error::SystemJsonKeyNotFound {
+                key: HAS_ENC_AUIDO_KEY.to_owned(),
+            }
         })?;
+        *audio = serde_json::Value::Bool(state);
+
+        self.write()?;
+
+        Ok(())
+    }
+
+    pub fn set_encrypted_imgs(&mut self, state: bool) -> crate::error::Result<()> {
+        let imgs = self.data.get_mut(HAS_ENC_IMG_KEY).ok_or_else(|| {
+            crate::Error::SystemJsonKeyNotFound {
+                key: HAS_ENC_IMG_KEY.to_owned(),
+            }
+        })?;
+        *imgs = serde_json::Value::Bool(state);
+
+        self.write()?;
 
         Ok(())
     }
@@ -100,21 +103,19 @@ impl SystemJson {
         Ok(key_bytes)
     }
 
-    pub fn is_encrypted(&self) -> bool {
-        let has_enc_audio = self
-            .data
+    pub fn has_encrypted_audio(&self) -> bool {
+        self.data
             .get(HAS_ENC_AUIDO_KEY)
             .unwrap_or_else(|| &serde_json::Value::Bool(false))
             .as_bool()
-            .unwrap_or(false);
+            .unwrap_or(false)
+    }
 
-        let has_enc_imgs = self
-            .data
+    pub fn has_encrypted_images(&self) -> bool {
+        self.data
             .get(HAS_ENC_IMG_KEY)
             .unwrap_or_else(|| &serde_json::Value::Bool(false))
             .as_bool()
-            .unwrap_or(false);
-
-        has_enc_audio || has_enc_imgs
+            .unwrap_or(false)
     }
 }

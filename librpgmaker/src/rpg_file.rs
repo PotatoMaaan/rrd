@@ -1,10 +1,12 @@
-use crate::{error::Error, Decrypted, Encrypted, EncryptionState};
 use std::{
     fs,
     marker::PhantomData,
     path::{Path, PathBuf},
 };
 
+use crate::{Decrypted, Encrypted, EncryptionState, UnknownEncryption};
+
+/// The header that indicates that a file is encrypted
 const RPG_HEADER: &[u8] = &[
     0x52, 0x50, 0x47, 0x4D, 0x56, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
@@ -23,7 +25,7 @@ pub enum FileType {
 }
 
 #[derive(Debug, Clone)]
-pub struct RpgFile<State: EncryptionState> {
+pub struct RpgFile<State> {
     pub data: Vec<u8>,
     file_type: FileType,
     orig_path: PathBuf,
@@ -31,19 +33,6 @@ pub struct RpgFile<State: EncryptionState> {
 }
 
 impl FileType {
-    /// Checks if a given path is an `RpgFile` (based on extension)
-    ///
-    /// ## Example
-    /// ```
-    /// use std::path::Path;
-    /// use librpgmaker::prelude::*;
-    ///
-    /// let path = Path::new("test/actor1.rpgmvp");
-    ///
-    /// let is_rpgfile = RpgFileType::scan(&path);
-    ///
-    /// assert!(is_rpgfile.is_some());
-    /// ```
     fn from_encrypted_path(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?;
         let ext = match ext {
@@ -66,18 +55,10 @@ impl FileType {
         Some(ext)
     }
 
-    /// Returns a "decrypted" file extension
-    ///
-    /// ## Example
-    /// ```
-    /// use librpgmaker::prelude::*;
-    ///
-    /// let file_type = RpgFileType::Video;
-    ///
-    /// let ext = file_type.to_extension();
-    ///
-    /// assert_eq!(ext, "m4a");
-    /// ```
+    pub fn from_any_path(path: &Path) -> Option<Self> {
+        Self::from_encrypted_path(path).or(Self::from_decrypted_path(path))
+    }
+
     #[must_use]
     fn to_extension_decrypted(&self) -> &'static str {
         match self {
@@ -98,15 +79,29 @@ impl FileType {
 }
 
 impl RpgFile<Encrypted> {
-    pub fn from_encrypted(path: &Path) -> crate::error::Result<Self> {
+    pub unsafe fn from_raw_parts_encrypted(
+        data: Vec<u8>,
+        file_type: FileType,
+        orig_path: PathBuf,
+    ) -> Self {
+        Self {
+            data,
+            file_type,
+            orig_path,
+            state: PhantomData,
+        }
+    }
+
+    pub fn from_encrypted_path(path: &Path) -> crate::error::Result<RpgFile<Encrypted>> {
         let file_type = FileType::from_encrypted_path(path).ok_or(crate::Error::NotEncrypted)?;
+
         let data = fs::read(path).map_err(|e| crate::Error::IoError {
             err: e,
             file: path.to_path_buf(),
         })?;
         let orig_path = path.to_path_buf();
 
-        Ok(Self {
+        Ok(RpgFile {
             data,
             file_type,
             orig_path,
@@ -127,9 +122,9 @@ impl RpgFile<Encrypted> {
     /// File after decryption:
     ///
     /// | *header (16 bytes)* | *rest of the data* |
-    pub fn decrypt(mut self, key: &[u8]) -> Result<RpgFile<Decrypted>, Error> {
+    pub fn decrypt(mut self, key: &[u8]) -> Result<RpgFile<Decrypted>, crate::Error> {
         if self.data.len() <= 32 {
-            return Err(Error::FileTooShort(self.orig_path.clone()));
+            return Err(crate::Error::FileTooShort(self.orig_path.clone()));
         }
 
         self.data.drain(0..16); // strip off rpgmaker header
@@ -147,15 +142,29 @@ impl RpgFile<Encrypted> {
 }
 
 impl RpgFile<Decrypted> {
-    pub fn from_decrypted(path: &Path) -> crate::error::Result<Self> {
-        let file_type = FileType::from_decrypted_path(path).ok_or(crate::Error::Encrypted)?;
-        let data = fs::read(path).map_err(|err| crate::Error::IoError {
-            err,
+    pub unsafe fn from_raw_parts_decrypted(
+        data: Vec<u8>,
+        file_type: FileType,
+        orig_path: PathBuf,
+    ) -> Self {
+        Self {
+            data,
+            file_type,
+            orig_path,
+            state: PhantomData,
+        }
+    }
+
+    pub fn from_decrypted_path(path: &Path) -> crate::error::Result<RpgFile<Decrypted>> {
+        let file_type = FileType::from_decrypted_path(path).ok_or(crate::Error::NotEncrypted)?;
+
+        let data = fs::read(path).map_err(|e| crate::Error::IoError {
+            err: e,
             file: path.to_path_buf(),
         })?;
         let orig_path = path.to_path_buf();
 
-        Ok(Self {
+        Ok(RpgFile {
             data,
             file_type,
             orig_path,
@@ -164,6 +173,14 @@ impl RpgFile<Decrypted> {
     }
 
     pub fn encrypt(mut self, key: &[u8]) -> crate::error::Result<RpgFile<Encrypted>> {
+        if self.data.len() < 16 {
+            return Err(crate::Error::FileTooShort(self.orig_path));
+        }
+
+        if &self.data[0..RPG_HEADER.len()] == RPG_HEADER {
+            return Err(crate::Error::Encrypted);
+        }
+
         let (header, _) = self.data.split_at_mut(16); // get a reference to the header
         rpg_xor(header, key); // encrypt header
 
@@ -180,7 +197,57 @@ impl RpgFile<Decrypted> {
     }
 }
 
-impl<State: EncryptionState> RpgFile<State> {
+impl RpgFile<UnknownEncryption> {
+    pub unsafe fn from_raw_parts_unknown(
+        data: Vec<u8>,
+        file_type: FileType,
+        orig_path: PathBuf,
+    ) -> Self {
+        Self {
+            data,
+            file_type,
+            orig_path,
+            state: PhantomData,
+        }
+    }
+
+    pub fn from_any_path(path: &Path) -> crate::error::Result<RpgFile<UnknownEncryption>> {
+        let file_type = FileType::from_any_path(path).ok_or(crate::Error::NotEncrypted)?;
+
+        let data = fs::read(path).map_err(|e| crate::Error::IoError {
+            err: e,
+            file: path.to_path_buf(),
+        })?;
+        let orig_path = path.to_path_buf();
+
+        Ok(RpgFile {
+            data,
+            file_type,
+            orig_path,
+            state: PhantomData,
+        })
+    }
+}
+
+impl<State> RpgFile<State> {
+    pub fn is_encrypted(self) -> EncryptionState<RpgFile<Encrypted>, RpgFile<Decrypted>> {
+        if self.data.get(0..16) == Some(RPG_HEADER) {
+            EncryptionState::Encrypted(RpgFile {
+                data: self.data,
+                file_type: self.file_type,
+                orig_path: self.orig_path,
+                state: PhantomData,
+            })
+        } else {
+            EncryptionState::Decrypted(RpgFile {
+                data: self.data,
+                file_type: self.file_type,
+                orig_path: self.orig_path,
+                state: PhantomData,
+            })
+        }
+    }
+
     pub fn file_type(&self) -> FileType {
         self.file_type
     }

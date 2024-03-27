@@ -9,134 +9,116 @@ use std::{
 };
 
 pub mod error;
-mod rpg_file;
+pub mod rpg_file;
 mod system_json;
 #[cfg(test)]
 mod tests;
 pub use error::Error;
 
-pub trait UnknownEncryptionState {}
-pub trait EncryptionState {}
-
-#[derive(Debug)]
-pub struct Decrypted;
 #[derive(Debug)]
 pub struct Encrypted;
+#[derive(Debug)]
+pub struct Decrypted;
 #[derive(Debug)]
 pub struct UnknownEncryption;
 
 #[derive(Debug)]
-pub enum Encryption {
-    Encrypted(Game<Encrypted>),
-    Decrypted(Game<Decrypted>),
+pub enum EncryptionState<E, D> {
+    Encrypted(E),
+    Decrypted(D),
 }
 
-impl UnknownEncryptionState for Encrypted {}
-impl UnknownEncryptionState for Decrypted {}
-impl UnknownEncryptionState for UnknownEncryption {}
-
-impl EncryptionState for Encrypted {}
-impl EncryptionState for Decrypted {}
-
 #[derive(Debug)]
-pub struct Game<ImgState: UnknownEncryptionState> {
+pub struct Game {
     path: PathBuf,
-    state: PhantomData<ImgState>,
     system_json: SystemJson,
     key: Vec<u8>,
 }
 
-impl<State: UnknownEncryptionState> Game<State> {
-    pub fn game_title(&self) -> Option<&str> {
+impl Game {
+    /// Returns the title of the game (if available)
+    pub fn title(&self) -> Option<&str> {
         self.system_json.game_title()
     }
 
+    /// Returns the encryption key of the game
     pub fn key(&self) -> &[u8] {
         &self.key
     }
 
-    pub fn set_encryption_state(&mut self, state: Encryption) -> crate::error::Result<()> {
-        self.system_json.set_encryption_state(state)
-    }
-}
-
-impl Game<UnknownEncryption> {
-    pub fn new(path: impl AsRef<Path>) -> Result<Game<UnknownEncryption>, crate::Error> {
+    /// Attenpt to create a Game from the given path
+    pub fn new(path: impl AsRef<Path>) -> Result<Game, crate::Error> {
         let path = path.as_ref();
         let system_json = SystemJson::find_system_json(path)?;
         let key = system_json.key()?;
 
-        Ok(Game::<UnknownEncryption> {
+        Ok(Game {
             path: path.to_path_buf(),
-            state: PhantomData,
             system_json,
             key,
         })
     }
-}
 
-impl Game<UnknownEncryption> {
-    pub fn check_encrypted(self) -> Encryption {
-        if self.system_json.is_encrypted() {
-            Encryption::Encrypted(Game::<Encrypted> {
-                path: self.path,
-                state: PhantomData,
-                system_json: self.system_json,
-                key: self.key,
-            })
-        } else {
-            Encryption::Decrypted(Game::<Decrypted> {
-                path: self.path,
-                state: PhantomData,
-                system_json: self.system_json,
-                key: self.key,
-            })
-        }
-    }
-}
-
-impl Game<Encrypted> {
-    pub fn decrypt(self) -> WalkGameIter<Decrypted> {
+    /// Returns an iterator over all decryptable/encryptable files in the game
+    pub fn files(&self) -> WalkGameIter<UnknownEncryption> {
         WalkGameIter {
-            iter: walkdir::WalkDir::new(&self.path).into_iter(),
+            iter: jwalk::WalkDir::new(self.path.clone()).into_iter(),
             state: PhantomData,
-            key: self.key,
         }
     }
-}
 
-impl Game<Decrypted> {
-    pub fn encrypt(self) -> WalkGameIter<Encrypted> {
+    /// Returns an iterator over all encrypted files in the game
+    pub fn encrypted_files(&self) -> WalkGameIter<Encrypted> {
         WalkGameIter {
-            iter: walkdir::WalkDir::new(&self.path).into_iter(),
+            iter: jwalk::WalkDir::new(self.path.clone()).into_iter(),
             state: PhantomData,
-            key: self.key,
         }
+    }
+
+    /// Returns an iterator over all decrypted files in the game
+    pub fn decrypted_files(&self) -> WalkGameIter<Decrypted> {
+        WalkGameIter {
+            iter: jwalk::WalkDir::new(self.path.clone()).into_iter(),
+            state: PhantomData,
+        }
+    }
+
+    /// Reads information in System.json to determine if the game reports as being encrypted
+    pub fn has_encrypted_images(&self) -> bool {
+        self.system_json.has_encrypted_images()
+    }
+
+    pub fn has_encrypted_audio(&self) -> bool {
+        self.system_json.has_encrypted_audio()
+    }
+
+    pub fn set_encrypted_audio(&mut self, state: bool) -> crate::error::Result<()> {
+        self.system_json.set_encrypted_audio(state)
+    }
+
+    pub fn set_encrypted_imgs(&mut self, state: bool) -> crate::error::Result<()> {
+        self.system_json.set_encrypted_imgs(state)
     }
 }
 
-pub struct WalkGameIter<State: EncryptionState> {
-    key: Vec<u8>,
-    iter: walkdir::IntoIter,
-    state: PhantomData<State>,
+/// An iterator over files in the game
+pub struct WalkGameIter<Enc> {
+    iter: jwalk::DirEntryIter<((), ())>,
+    state: PhantomData<Enc>,
 }
 
-impl Iterator for WalkGameIter<Decrypted> {
-    type Item = Result<RpgFile<Decrypted>, crate::Error>;
+impl Iterator for WalkGameIter<UnknownEncryption> {
+    type Item = Result<RpgFile<UnknownEncryption>, crate::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(next) = self.iter.next() {
             match next {
                 Ok(next) => {
-                    let file = match RpgFile::from_encrypted(next.path()) {
+                    let file = match RpgFile::from_any_path(&next.path()) {
                         Ok(v) => v,
                         Err(_) => {
                             continue;
                         }
-                    };
-                    let file = match file.decrypt(&self.key) {
-                        Ok(v) => v,
-                        Err(e) => return Some(Err(e)),
                     };
 
                     return Some(Ok(file));
@@ -151,21 +133,54 @@ impl Iterator for WalkGameIter<Decrypted> {
     }
 }
 
-// impl Iterator for WalkGameIter<Decrypted> {
-//     type Item = Result<RpgFile<Decrypted>, crate::Error>;
+impl Iterator for WalkGameIter<Encrypted> {
+    type Item = Result<RpgFile<Encrypted>, crate::Error>;
 
-//     fn next(&mut self) -> Option<Self::Item> {
-//         while let Some(next) = self.iter.next() {
-//             match next {
-//                 Ok(next) => {
-//                     todo!()
-//                 }
-//                 Err(e) => {
-//                     return Some(Err(crate::Error::WalkDirError(e)));
-//                 }
-//             }
-//         }
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(next) = self.iter.next() {
+            match next {
+                Ok(next) => {
+                    let file = match RpgFile::from_encrypted_path(&next.path()) {
+                        Ok(v) => v,
+                        Err(_) => {
+                            continue;
+                        }
+                    };
 
-//         None
-//     }
-// }
+                    return Some(Ok(file));
+                }
+                Err(e) => {
+                    return Some(Err(crate::Error::WalkDirError(e)));
+                }
+            }
+        }
+
+        None
+    }
+}
+
+impl Iterator for WalkGameIter<Decrypted> {
+    type Item = Result<RpgFile<Decrypted>, crate::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(next) = self.iter.next() {
+            match next {
+                Ok(next) => {
+                    let file = match RpgFile::from_decrypted_path(&next.path()) {
+                        Ok(v) => v,
+                        Err(_) => {
+                            continue;
+                        }
+                    };
+
+                    return Some(Ok(file));
+                }
+                Err(e) => {
+                    return Some(Err(crate::Error::WalkDirError(e)));
+                }
+            }
+        }
+
+        None
+    }
+}

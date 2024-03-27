@@ -12,7 +12,7 @@ pub enum Error {
     IoError { err: std::io::Error, file: PathBuf },
 
     /// Error while walking directory tree
-    WalkDirError(walkdir::Error),
+    WalkDirError(jwalk::Error),
 
     /// The System.json file was not valid JSON.
     /// See the included error for more details.
